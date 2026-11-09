@@ -11,16 +11,24 @@ Tero es una tienda en línea basada en microservicios. Permite explorar un catá
 
 ## Inicio rápido
 
+Las credenciales no están en el repositorio. Se configuran en un archivo `.env` local, que está en `.gitignore`:
+
 ```bash
+cp .env.example .env
+# Completar los valores vacíos de .env, por ejemplo con:
+#   openssl rand -hex 24   (contraseñas)
+#   openssl rand -hex 32   (ADMIN_JWT_SECRET)
 docker compose up --build
 ```
+
+Si falta alguna variable obligatoria, `docker compose` no arranca y muestra cuál falta.
 
 | Servicio | URL                   |
 |----------|-----------------------|
 | Tienda   | http://localhost:8080 |
 | Admin    | http://localhost:8081 |
 
-Credenciales del admin por defecto: `admin` / `admin`
+Credenciales del admin: las que definiste en `.env` (`ADMIN_USERNAME` y `ADMIN_PASSWORD`).
 
 ## Comandos útiles
 
@@ -137,7 +145,7 @@ docker compose logs -f <servicio>
 |----------------------------------------|-----------------------|------------------|
 | `RETAIL_CATALOG_PERSISTENCE_PROVIDER`  | Tipo de persistencia  | `postgres`       |
 | `RETAIL_CATALOG_PERSISTENCE_ENDPOINT`  | Host:Puerto de la DB  | `db:5432`        |
-| `DB_PASSWORD`                          | Contraseña PostgreSQL | `retailpassword` |
+| `DB_PASSWORD`                          | Contraseña PostgreSQL | sin default, se toma de `POSTGRES_PASSWORD` en `.env` |
 
 ### Checkout
 | Variable                                   | Descripción              | Default               |
@@ -149,9 +157,9 @@ docker compose logs -f <servicio>
 ### Admin
 | Variable            | Descripción                | Default                   |
 |---------------------|----------------------------|---------------------------|
-| `ADMIN_USERNAME`    | Usuario administrador      | `admin`                   |
-| `ADMIN_PASSWORD`    | Contraseña administrador   | `admin`                   |
-| `ADMIN_JWT_SECRET`  | Secreto para tokens JWT    | `change-me-in-production` |
+| `ADMIN_USERNAME`    | Usuario administrador      | sin default (obligatoria) |
+| `ADMIN_PASSWORD`    | Contraseña administrador   | sin default (obligatoria) |
+| `ADMIN_JWT_SECRET`  | Secreto para tokens JWT    | sin default (obligatoria) |
 
 ---
 
