@@ -100,12 +100,14 @@ Medido el 04/11/2026 sobre `main` en el commit `56fd8cb` (tag `baseline`), con `
 
 | Servicio | Imagen base | Tamaño antes | Tamaño después |
 |---|---|---|---|
-| catalog | `golang:1.24` | 2.26 GB | _(completar en DEVOPS-22)_ |
-| checkout | `node:22` | 2.03 GB | _(completar en DEVOPS-22)_ |
-| orders | `golang:1.24` | 2.03 GB | _(completar en DEVOPS-22)_ |
-| admin | `node:22` | 1.73 GB | _(completar en DEVOPS-22)_ |
-| ui | `node:22` | 1.72 GB | _(completar en DEVOPS-22)_ |
-| carts | `python:3.12` | 1.71 GB | _(completar en DEVOPS-22)_ |
+| catalog | `golang:1.24` | 2.26 GB | 68 MB |
+| checkout | `node:22` | 2.03 GB | 311 MB |
+| orders | `golang:1.24` | 2.03 GB | 28 MB |
+| admin | `node:22` | 1.73 GB | 228 MB |
+| ui | `node:22` | 1.72 GB | 231 MB |
+| carts | `python:3.12` | 1.71 GB | 268 MB |
+
+Imágenes base después de DEVOPS-22: `gcr.io/distroless/static-debian12:nonroot` (orders), `gcr.io/distroless/base-debian12:nonroot` (catalog, necesita glibc por SQLite), `node:22.11.0-alpine3.20` (ui, admin, checkout) y `python:3.12.7-slim-bookworm` (carts).
 
 Las 6 imágenes pesan entre 1.7 y 2.3 GB porque son de una sola etapa sobre imágenes base completas, e incluyen compiladores, `devDependencies` y el código fuente.
 
@@ -118,4 +120,4 @@ Las 6 imágenes pesan entre 1.7 y 2.3 GB porque son de una sola etapa sobre imá
 
 ## 7. Qué sigue
 
-Los hallazgos de las secciones 3 y 4 se atacan en este orden: DEVOPS-30 (secretos), DEVOPS-22 y DEVOPS-23 (Dockerfiles y `.dockerignore`), DEVOPS-24 (puertos de DB y Redis). La columna "después" de la tabla se completa al cerrar DEVOPS-22.
+Los hallazgos de las secciones 3 y 4 se atacan en este orden: DEVOPS-30 (secretos), DEVOPS-22 y DEVOPS-23 (Dockerfiles y `.dockerignore`), DEVOPS-24 (puertos de DB y Redis). La columna "después" se midió con `docker images` después de DEVOPS-22 (Dockerfiles multi-stage, base mínima y usuario no-root).

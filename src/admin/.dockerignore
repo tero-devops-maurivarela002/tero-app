@@ -1,0 +1,13 @@
+.git
+.gitignore
+.dockerignore
+Dockerfile
+*.md
+.env
+.env.*
+node_modules
+dist
+coverage
+npm-debug.log*
+.yarn/cache
+.yarn/install-state.gz
