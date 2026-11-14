@@ -8,8 +8,6 @@ services:
     volumes:
       - db-data:/var/lib/postgresql/data
       - ./init-db.sql:/docker-entrypoint-initdb.d/init.sql
-    ports:
-      - "5433:5432"
     healthcheck:
       # -h 127.0.0.1 fuerza TCP: durante el init el server temporal solo escucha en socket Unix
       test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U $${POSTGRES_USER} -d orders"]
@@ -18,10 +16,10 @@ services:
       retries: 20
       start_period: 10s
 
+  # db y redis no publican puertos en el host: solo los ven los demás
+  # servicios por la red interna de compose (db:5432, redis:6379).
   redis:
     image: redis:7-alpine
-    ports:
-      - "6379:6379"
 
   catalog:
     build:

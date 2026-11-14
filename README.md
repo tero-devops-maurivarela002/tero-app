@@ -44,6 +44,10 @@ docker compose up --build <servicio>
 
 # Ver logs de un servicio
 docker compose logs -f <servicio>
+
+# Conectarse a PostgreSQL o a Redis (no publican puertos en el host)
+docker compose exec db psql -U retail_user -d catalogdb
+docker compose exec redis redis-cli
 ```
 
 ---
