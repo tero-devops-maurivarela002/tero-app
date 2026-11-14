@@ -1,0 +1,63 @@
+# Configuración de Gitleaks para tero-app (DEVOPS-31)
+#
+# - Usa las reglas por defecto de Gitleaks (claves de AWS, tokens, llaves privadas, etc.).
+# - Agrega 3 reglas propias para contraseñas escritas en texto plano en archivos de
+#   configuración o como valor por defecto en el código. Es justo la observación A
+#   del auditor: las reglas por defecto NO detectaban "POSTGRES_PASSWORD: retailpassword".
+# - Documenta las excepciones del historial (sección "Excepciones" al final).
+# Explicación completa: docs/seguridad/gitleaks.md
+
+title = "Gitleaks tero-app"
+
+[extend]
+useDefault = true
+
+# Regla 1: contraseña literal en archivos de configuración
+# (docker-compose, .env, YAML, Terraform). Ej.: POSTGRES_PASSWORD: retailpassword
+# No marca referencias como ${POSTGRES_PASSWORD} ni valores vacíos (.env.example).
+[[rules]]
+id = "tero-password-en-config"
+description = "Contraseña o secreto con valor literal en un archivo de configuración"
+path = '''(?i)(?:\.ya?ml|\.env(?:\.[a-z]+)?|\.tf|\.tfvars|\.properties|\.ini|\.conf)$'''
+regex = '''(?im)^[\s-]*[a-z0-9_]*(?:password|passwd|pwd|secret)[a-z0-9_]*\s*[:=]\s*['"]?([a-z0-9!#%&*+,./@^_~-]{4,})['"]?\s*(?:#.*)?$'''
+secretGroup = 1
+keywords = ["password", "passwd", "pwd", "secret"]
+
+# Regla 2: contraseña como valor por defecto en el código.
+# Ej. (Node): process.env.DB_PASSWORD || 'retailpassword'
+[[rules]]
+id = "tero-password-default-js"
+description = "Variable de entorno de un secreto con valor por defecto literal (JS/TS)"
+regex = '''(?i)[a-z0-9_]*(?:password|passwd|pwd|secret)[a-z0-9_]*\s*(?:\|\||\?\?)\s*['"`]([^'"`\s]{4,})['"`]'''
+secretGroup = 1
+keywords = ["password", "passwd", "pwd", "secret"]
+
+# Regla 3: lo mismo en Python. Ej.: os.getenv("DB_PASSWORD", "retailpassword")
+[[rules]]
+id = "tero-password-default-py"
+description = "Variable de entorno de un secreto con valor por defecto literal (Python)"
+regex = '''(?i)(?:getenv|environ\.get)\(\s*['"][a-z0-9_]*(?:password|passwd|pwd|secret)[a-z0-9_]*['"]\s*,\s*['"]([^'"\s]{4,})['"]'''
+secretGroup = 1
+keywords = ["password", "passwd", "pwd", "secret"]
+
+# ---------------------------------------------------------------------------
+# Excepciones (cada una con su justificación)
+# ---------------------------------------------------------------------------
+[allowlist]
+description = "Excepciones documentadas de tero-app"
+
+# 1) Commit inicial (56fd8cb): el código tal como lo entregó el equipo de Tero,
+#    con las credenciales de ejemplo retailpassword, admin y
+#    change-me-in-production en docker-compose.yml y src/admin/src/app.ts.
+#    - Se sacaron del código en DEVOPS-30 (PR #7) y se ROTARON: los valores
+#      reales viven solo en el .env de cada uno y nunca se commitearon.
+#    - No se reescribió el historial (git filter-repo) para no romper los
+#      PRs ya mergeados y dejar a la vista el "antes" y el "después".
+#    - La excepción es solo para ESE commit: si alguien vuelve a escribir
+#      esas contraseñas en un commit nuevo, el pipeline falla.
+commits = ["56fd8cbb2705aaf5ffec832b8a5c692e68ef28e8"]
+
+# 2) Binario de Yarn 4 que versiona el propio Yarn (.yarn/releases).
+#    Tiene un string "apiKey" que es parte del código de Yarn, no una
+#    credencial nuestra: falso positivo de la regla generic-api-key.
+paths = ['''src/checkout/\.yarn/releases/''']
