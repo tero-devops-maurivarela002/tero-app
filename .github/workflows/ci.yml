@@ -1,13 +1,15 @@
-# Pipeline de CI de tero-app (DEVOPS-25, DEVOPS-31, DEVOPS-34)
+# Pipeline de CI de tero-app (DEVOPS-25, DEVOPS-31, DEVOPS-34, DEVOPS-32)
 #
 # Corre en cada PR a develop/main y en cada push (merge) a esas ramas.
 # Etapas, encadenadas con "needs" (si una falla, las siguientes no corren):
 #   1. gitleaks     -> busca secretos en TODO el historial de git
 #   2. build-test   -> compila y corre los tests unitarios de cada servicio
-#      semgrep      -> SAST: análisis estático de seguridad (en paralelo con build-test)
+#      semgrep      -> SAST: análisis estático de seguridad
+#      trivy-fs     -> SCA: vulnerabilidades conocidas en las dependencias
+#                      (build-test, semgrep y trivy-fs corren en paralelo)
 #   3. docker-build -> construye la imagen de cada servicio (sin publicarla),
-#                      solo si pasaron build-test Y semgrep
-# En el Sprint 2 se suman Trivy fs y SonarCloud como gates,
+#                      solo si pasaron build-test, semgrep Y trivy-fs
+# En el Sprint 2 se suma SonarCloud como gate,
 # y en el Sprint 3 Trivy image y el push a ECR.
 
 name: CI
@@ -243,10 +245,76 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
+  trivy-fs:
+    name: trivy-fs
+    # SCA (DEVOPS-32): CVEs conocidos en las dependencias de los 6 servicios
+    # (go.mod, requirements.txt, package-lock.json, yarn.lock).
+    needs: gitleaks
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      security-events: write
+    env:
+      TRIVY_VERSION: 0.76.1
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      # Binario con versión fija y checksum verificado, igual que Gitleaks. No usamos
+      # aquasecurity/trivy-action: sus tags fueron movidos a código malicioso en un
+      # ataque de cadena de suministro (lo cita la regla de Semgrep de DEVOPS-34).
+      - name: Instalar Trivy (versión fija y checksum verificado)
+        run: |
+          base="https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}"
+          file="trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz"
+          curl -sSfL -o "$file" "$base/$file"
+          curl -sSfL -o checksums.txt "$base/trivy_${TRIVY_VERSION}_checksums.txt"
+          grep " $file\$" checksums.txt | sha256sum -c -
+          tar -xzf "$file" trivy
+          ./trivy --version
+
+      - name: Reporte completo (todas las severidades)
+        # No falla: deja el SARIF con todo lo que encuentra (también MEDIUM/LOW
+        # y los que no tienen parche) para Security y para el informe de hallazgos.
+        run: |
+          ./trivy fs . \
+            --scanners vuln \
+            --format sarif \
+            --output trivy-fs.sarif
+
+      - name: Quality gate (CRITICAL/HIGH con parche disponible)
+        # --ignore-unfixed: no bloquea si todavía no existe versión corregida
+        #                   (es lo que pide la letra: "con fix disponible").
+        # --exit-code 1:    si queda alguno, el job falla y no se construyen imágenes.
+        # Las excepciones justificadas van en .trivyignore.
+        run: |
+          ./trivy fs . \
+            --scanners vuln \
+            --severity CRITICAL,HIGH \
+            --ignore-unfixed \
+            --exit-code 1
+
+      - name: Publicar hallazgos en GitHub Security
+        if: always() && hashFiles('trivy-fs.sarif') != ''
+        uses: github/codeql-action/upload-sarif@9418214df1f2c4b8128c770156c409013b07d6b9 # v3.39.3
+        with:
+          sarif_file: trivy-fs.sarif
+          category: trivy-fs
+
+      - name: Guardar el reporte
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: trivy-fs-report
+          path: trivy-fs.sarif
+          if-no-files-found: ignore
+          retention-days: 14
+
   docker-build:
     name: docker-build (${{ matrix.service }})
-    # Solo se construyen imágenes si compilaron, pasaron los tests y el SAST.
-    needs: [build-test, semgrep]
+    # Solo se construyen imágenes si compilaron, pasaron los tests, el SAST y el SCA.
+    needs: [build-test, semgrep, trivy-fs]
     runs-on: ubuntu-latest
     timeout-minutes: 20
     strategy:

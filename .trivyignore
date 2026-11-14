@@ -1,0 +1,11 @@
+# Excepciones de Trivy (DEVOPS-32)
+#
+# Acá se listan CVEs que se aceptan conscientemente, uno por línea, cada uno con:
+#   - por qué no aplica o por qué no se puede corregir todavía,
+#   - quién lo aceptó y hasta cuándo (fecha de revisión).
+# Formato:
+#   # <justificación> | aceptado por <nombre> | revisar el <fecha>
+#   CVE-AAAA-NNNNN
+#
+# Hoy no hay ninguna: todos los CRITICAL/HIGH con parche se corrigieron
+# actualizando las dependencias (ver docs/seguridad/trivy-fs.md).
