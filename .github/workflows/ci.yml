@@ -1,11 +1,13 @@
-# Pipeline de CI de tero-app (DEVOPS-25, DEVOPS-31)
+# Pipeline de CI de tero-app (DEVOPS-25, DEVOPS-31, DEVOPS-34)
 #
 # Corre en cada PR a develop/main y en cada push (merge) a esas ramas.
 # Etapas, encadenadas con "needs" (si una falla, las siguientes no corren):
 #   1. gitleaks     -> busca secretos en TODO el historial de git
 #   2. build-test   -> compila y corre los tests unitarios de cada servicio
-#   3. docker-build -> construye la imagen de cada servicio (sin publicarla)
-# En el Sprint 2 se suman Semgrep, Trivy fs y SonarCloud como gates,
+#      semgrep      -> SAST: análisis estático de seguridad (en paralelo con build-test)
+#   3. docker-build -> construye la imagen de cada servicio (sin publicarla),
+#                      solo si pasaron build-test Y semgrep
+# En el Sprint 2 se suman Trivy fs y SonarCloud como gates,
 # y en el Sprint 3 Trivy image y el push a ECR.
 
 name: CI
@@ -177,10 +179,70 @@ jobs:
         if: matrix.lang == 'node-yarn'
         run: node .yarn/releases/yarn-4.11.0.cjs test
 
+  semgrep:
+    name: semgrep
+    # SAST (DEVOPS-34). Corre en paralelo con build-test, después de gitleaks.
+    needs: gitleaks
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      # Para publicar los hallazgos en la pestaña Security > Code scanning.
+      security-events: write
+    env:
+      SEMGREP_VERSION: 1.185.0
+      # Reglas de la comunidad de Semgrep (registry semgrep.dev):
+      #  - p/owasp-top-ten: lo que pide la letra (OWASP Top 10)
+      #  - p/default: reglas generales de seguridad para Go, Python y JS/TS
+      #  - p/dockerfile: buenas prácticas de seguridad en Dockerfiles
+      SEMGREP_RULES: --config p/owasp-top-ten --config p/default --config p/dockerfile
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Instalar Semgrep (versión fija)
+        run: pip install "semgrep==${SEMGREP_VERSION}"
+
+      - name: Reporte completo (todas las severidades)
+        # Este paso no falla: genera el reporte SARIF con TODO lo que encuentra,
+        # incluidos los hallazgos INFO, para revisarlos en Security y en el informe.
+        run: |
+          semgrep scan $SEMGREP_RULES --metrics=off \
+            --sarif --output semgrep.sarif
+
+      - name: Quality gate (falla con hallazgos ERROR o WARNING)
+        # --error: sale con código 1 si queda algún hallazgo de esas severidades.
+        # Los INFO no bloquean (ver docs/seguridad/semgrep.md).
+        run: |
+          semgrep scan $SEMGREP_RULES --metrics=off \
+            --severity ERROR --severity WARNING \
+            --error
+
+      - name: Publicar hallazgos en GitHub Security
+        if: always() && hashFiles('semgrep.sarif') != ''
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: semgrep.sarif
+          category: semgrep
+
+      - name: Guardar el reporte
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: semgrep-report
+          path: semgrep.sarif
+          if-no-files-found: ignore
+          retention-days: 14
+
   docker-build:
     name: docker-build (${{ matrix.service }})
-    # Solo se construyen imágenes si compilaron y pasaron los tests.
-    needs: build-test
+    # Solo se construyen imágenes si compilaron, pasaron los tests y el SAST.
+    needs: [build-test, semgrep]
     runs-on: ubuntu-latest
     timeout-minutes: 20
     strategy:
