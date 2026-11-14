@@ -33,6 +33,15 @@ Qué no se analiza (`.semgrepignore`): dependencias y artefactos (`node_modules`
 
 Bloqueamos ERROR y WARNING porque hoy el código tiene **0 hallazgos** de esas severidades: el gate arranca en verde y cualquier problema nuevo de seguridad lo pone en rojo. No bloqueamos INFO porque son recomendaciones de estilo y bloquearlas obligaría a llenar el repo de excepciones sin ganar seguridad.
 
+## Primera corrida en el PR: el gate bloqueó 16 hallazgos
+
+La primera vez que corrió en el PR, el job falló con **16 hallazgos WARNING**. Lo corregimos así:
+
+| Regla | Dónde | Cant. | Qué dice | Qué hicimos |
+|---|---|---|---|---|
+| `github-actions-mutable-action-tag` | `.github/workflows/ci.yml` | 14 | Las actions estaban referenciadas por tag (`actions/checkout@v4`). El dueño de la action puede mover un tag para que apunte a código malicioso, y nuestro pipeline lo ejecutaría. Es un ataque de cadena de suministro, como el de `tj-actions/changed-files` en 2025. | **Corregido.** Cada action quedó fijada al **SHA del commit** de su versión, por ejemplo `actions/checkout@11d5960a… # v4.4.0`. Para no tener que actualizarlas a mano, agregamos `.github/dependabot.yml`, que abre un PR por semana con las versiones nuevas. |
+| `missing-integrity` | `src/ui/public/index.html` y `src/admin/public/index.html` | 2 | Un `<link>` a un recurso externo sin `integrity`. En realidad era el favicon embebido como `data:` URI, y la regla saltaba por el `http://www.w3.org/2000/svg` del SVG. | **Falso positivo, pero lo resolvimos igual.** El ícono pasó a un archivo `public/favicon.svg` servido por la propia app. `<!-- nosemgrep -->` no funciona en HTML, y desactivar la regla para todo el repo nos haría perder el control sobre scripts reales de CDN. |
+
 ## Resultado del análisis (14/11/2026)
 
 **0 ERROR, 0 WARNING, 21 INFO.** Los INFO quedan así:
@@ -42,6 +51,13 @@ Bloqueamos ERROR y WARNING porque hoy el código tiene **0 hallazgos** de esas s
 | `dockerfile-source-not-pinned` | Los 6 Dockerfiles, en cada `FROM` | 15 | La imagen base se referencia por tag (`node:22.11.0-alpine3.20`) y no por digest (`@sha256:...`). Un tag puede moverse y un digest no. | **Aceptado por ahora.** Ya usamos tags con versión exacta, nunca `latest`. Fijar por digest se evalúa en el Sprint 3 junto con Trivy image y Dependabot, que actualiza los digests solo. Si no, cada parche de seguridad de la imagen base habría que actualizarlo a mano. |
 | `prefer-json-notation` | `HEALTHCHECK` de admin, ui, checkout y cart | 4 | Recomienda la forma JSON (`["cmd", "arg"]`) en lugar de la forma shell. | **Excepción justificada.** El healthcheck usa `\|\| exit 1` para que cualquier error cuente como *unhealthy*, y eso necesita un shell. En la forma JSON no funciona. |
 | `missing-template-string-indicator` | `src/admin/src/app.ts:90` | 2 | Ve `'{}'` dentro de un string y sospecha que falta un `${}`. | **Falso positivo.** Es SQL de Postgres (`COALESCE(..., '{}')` es un array vacío), no una interpolación de JavaScript. |
+
+### Hallazgo pendiente: posible XSS en la tienda y el admin
+
+Corriendo además las reglas de JavaScript de navegador del repo público de Semgrep, que no están en los rulesets del pipeline, apareció `insecure-document-method` en `src/ui/public/index.html` y `src/admin/public/index.html`. Las páginas arman HTML con `innerHTML` y **meten sin escapar** datos que vienen de la API, como el nombre del producto. Como el admin puede editar productos, alguien con acceso al admin podría guardar un nombre con `<script>` que se ejecutaría en el navegador de cada cliente (**XSS almacenado**, OWASP A03 Inyección).
+
+- **Riesgo:** medio. Hace falta acceso al admin, que está protegido con usuario, contraseña y JWT.
+- **Remediación propuesta:** escapar los datos antes de insertarlos (una función `esc()`) o usar `textContent`. Se registra en el informe de hallazgos (DEVOPS-37) para corregirlo en una tarea propia.
 
 Lo bueno, que también sirve para la defensa: **no apareció ninguna inyección SQL**. Todas las queries de `admin` usan parámetros (`$1`, `$2`) y nunca concatenan input del usuario.
 
