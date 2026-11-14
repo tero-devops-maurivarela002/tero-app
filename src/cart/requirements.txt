@@ -1,5 +1,29 @@
-fastapi==0.115.0
-uvicorn[standard]==0.30.6
-pydantic==2.9.2
-psycopg2-binary==2.9.9
-prometheus-fastapi-instrumentator==7.0.0
+# Dependencias de runtime del servicio cart, TODAS fijadas (incluidas las transitivas).
+# Se fijan todas para que el build sea reproducible y para que Trivy fs (DEVOPS-32)
+# pueda ver la versión real de cada paquete (por ejemplo starlette, que viene con fastapi).
+# Directas: fastapi, uvicorn[standard], pydantic, psycopg2-binary, prometheus-fastapi-instrumentator.
+# Para actualizar: pip install -U <paquete> en un venv limpio y pip freeze.
+
+annotated-doc==0.0.6
+annotated-types==0.8.0
+anyio==4.16.0
+click==8.5.1
+fastapi==0.163.0
+h11==0.16.0
+httptools==0.9.0
+idna==3.20
+opentelemetry-api==1.45.2
+prometheus-fastapi-instrumentator==8.1.0
+prometheus_client==0.26.0
+psycopg2-binary==2.9.13
+pydantic==2.14.3
+pydantic_core==2.50.4
+python-dotenv==1.2.4
+PyYAML==6.0.3
+starlette==1.10.0
+typing-inspection==0.4.5
+typing_extensions==4.16.0
+uvicorn==0.54.0
+uvloop==0.23.0
+watchfiles==1.3.0
+websockets==17.4

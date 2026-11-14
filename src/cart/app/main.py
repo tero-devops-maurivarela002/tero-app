@@ -1,19 +1,25 @@
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from prometheus_fastapi_instrumentator import Instrumentator
 from app.config import settings
 from app.router import router
 
-app = FastAPI(title="Cart Service")
 
-
-@app.on_event("startup")
-def startup():
+# "lifespan" reemplaza a @app.on_event("startup"), que está deprecado desde
+# que se actualizó FastAPI/Starlette por las vulnerabilidades de DEVOPS-32.
+@asynccontextmanager
+async def lifespan(app: FastAPI):
     if settings.cart_persistence_provider == "postgres":
         from app.postgres_service import PostgresCartService
         app.state.cart_service = PostgresCartService()
     else:
         from app.service import InMemoryCartService
         app.state.cart_service = InMemoryCartService()
+    yield
+
+
+app = FastAPI(title="Cart Service", lifespan=lifespan)
 
 
 @app.get("/topology")
