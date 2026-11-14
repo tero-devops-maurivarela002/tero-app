@@ -1,0 +1,26 @@
+# Qué NO analiza Semgrep (DEVOPS-34). Este archivo reemplaza la lista por defecto,
+# así que repetimos acá las carpetas de dependencias y artefactos.
+
+# Dependencias y artefactos generados
+node_modules/
+dist/
+.venv/
+venv/
+__pycache__/
+coverage/
+
+# Binario de Yarn versionado por el propio Yarn (código de terceros, minificado)
+src/checkout/.yarn/
+
+# Lockfiles: no son código
+*.lock
+package-lock.json
+go.sum
+
+# Tests: usan valores falsos y patrones inseguros a propósito
+*_test.go
+src/cart/tests/
+
+# Documentación
+docs/
+*.md
