@@ -22,3 +22,8 @@ Claude trabaja con instrucciones de actuar como tutor: el autor realiza los camb
 - La IA propone y explica; **el autor decide, ejecuta y puede justificar cada cambio**.
 - Lo generado se contrasta con la letra del obligatorio y con una prueba real (comando, captura o resultado del pipeline).
 - La IA puede equivocarse. Cuando pasa, se corrige y se documenta qué ocurrió.
+
+
+## Tickets
+> **DEVOPS-25:** 
+>> Claude generó el workflow y los tests. Lo verifiqué con el run del PR y corriendo los tests localmente.
