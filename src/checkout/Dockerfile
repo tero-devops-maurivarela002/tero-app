@@ -6,8 +6,8 @@ WORKDIR /app
 # Yarn 4: el binario está versionado en .yarn/releases y lo indica .yarnrc.yml
 COPY package.json yarn.lock .yarnrc.yml ./
 COPY .yarn/releases ./.yarn/releases
-# Sin --immutable: el yarn.lock está desactualizado respecto de package.json (hallazgo pendiente).
-RUN node .yarn/releases/yarn-4.11.0.cjs install
+# --immutable: falla si el yarn.lock no coincide con package.json (build reproducible)
+RUN node .yarn/releases/yarn-4.11.0.cjs install --immutable
 COPY nest-cli.json tsconfig.json tsconfig.build.json ./
 COPY src ./src
 RUN node .yarn/releases/yarn-4.11.0.cjs build

@@ -1,0 +1,157 @@
+# Pipeline de CI de tero-app (DEVOPS-25)
+#
+# Corre en cada PR a develop/main y en cada push (merge) a esas ramas.
+# Hoy tiene dos etapas, encadenadas con "needs":
+#   1. build-test   -> compila y corre los tests unitarios de cada servicio
+#   2. docker-build -> construye la imagen de cada servicio (sin publicarla)
+# En el Sprint 2 se suman Gitleaks, Semgrep, Trivy fs y SonarCloud como gates,
+# y en el Sprint 3 Trivy image y el push a ECR.
+
+name: CI
+
+on:
+  pull_request:
+    branches: [develop, main]
+  push:
+    branches: [develop, main]
+  workflow_dispatch:
+
+# Mínimo privilegio: el pipeline solo necesita leer el código.
+permissions:
+  contents: read
+
+# Si llega un commit nuevo al mismo PR o rama, se cancela el run anterior.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-test:
+    name: build-test (${{ matrix.service }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      # Si falla un servicio, igual vemos el resultado de los demás.
+      fail-fast: false
+      matrix:
+        include:
+          - service: catalog
+            lang: go
+          - service: orders
+            lang: go
+          - service: cart
+            lang: python
+          - service: checkout
+            lang: node-yarn
+          - service: ui
+            lang: node
+          - service: admin
+            lang: node
+    defaults:
+      run:
+        working-directory: src/${{ matrix.service }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ---------- Go (catalog, orders) ----------
+      - name: Setup Go
+        if: matrix.lang == 'go'
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: src/${{ matrix.service }}/go.mod
+          cache-dependency-path: src/${{ matrix.service }}/go.sum
+
+      - name: Build (Go)
+        if: matrix.lang == 'go'
+        run: |
+          go vet ./...
+          go build ./...
+
+      - name: Tests unitarios (Go)
+        if: matrix.lang == 'go'
+        run: go test -v -coverprofile=coverage.out ./...
+
+      # ---------- Python (cart) ----------
+      - name: Setup Python
+        if: matrix.lang == 'python'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: src/${{ matrix.service }}/requirements*.txt
+
+      - name: Build (Python)
+        if: matrix.lang == 'python'
+        run: |
+          pip install -r requirements-dev.txt
+          python -m compileall -q app
+
+      - name: Tests unitarios (Python)
+        if: matrix.lang == 'python'
+        run: python -m pytest -v tests
+
+      # ---------- Node con npm (ui, admin) ----------
+      - name: Setup Node (npm)
+        if: matrix.lang == 'node'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: src/${{ matrix.service }}/package-lock.json
+
+      - name: Build (Node)
+        if: matrix.lang == 'node'
+        run: |
+          npm ci
+          npm run build
+
+      - name: Tests unitarios (Node)
+        if: matrix.lang == 'node'
+        run: npm test --if-present
+
+      # ---------- Node con Yarn 4 (checkout) ----------
+      - name: Setup Node (yarn)
+        if: matrix.lang == 'node-yarn'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Build (Yarn)
+        if: matrix.lang == 'node-yarn'
+        run: |
+          node .yarn/releases/yarn-4.11.0.cjs install --immutable
+          node .yarn/releases/yarn-4.11.0.cjs build
+
+      - name: Tests unitarios (Yarn)
+        if: matrix.lang == 'node-yarn'
+        run: node .yarn/releases/yarn-4.11.0.cjs test
+
+  docker-build:
+    name: docker-build (${{ matrix.service }})
+    # Solo se construyen imágenes si compilaron y pasaron los tests.
+    needs: build-test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [catalog, orders, cart, checkout, ui, admin]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build de la imagen (sin push)
+        uses: docker/build-push-action@v6
+        with:
+          context: src/${{ matrix.service }}
+          push: false
+          # Tag = SHA del commit: la misma imagen se va a promover entre ambientes.
+          tags: tero-${{ matrix.service }}:${{ github.sha }}
+          # Caché de capas en GitHub Actions, un scope por servicio.
+          cache-from: type=gha,scope=${{ matrix.service }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.service }}

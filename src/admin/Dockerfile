@@ -4,7 +4,7 @@
 FROM node:22.11.0-alpine3.20 AS build
 WORKDIR /app
 COPY package*.json ./
-RUN npm install
+RUN npm ci
 COPY tsconfig.json ./
 COPY src ./src
 RUN npm run build
@@ -13,7 +13,7 @@ RUN npm run build
 FROM node:22.11.0-alpine3.20 AS deps
 WORKDIR /app
 COPY package*.json ./
-RUN npm install --omit=dev && npm cache clean --force
+RUN npm ci --omit=dev && npm cache clean --force
 
 # ---- Etapa 3: ejecutar ----
 FROM node:22.11.0-alpine3.20
