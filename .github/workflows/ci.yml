@@ -1,10 +1,11 @@
-# Pipeline de CI de tero-app (DEVOPS-25)
+# Pipeline de CI de tero-app (DEVOPS-25, DEVOPS-31)
 #
 # Corre en cada PR a develop/main y en cada push (merge) a esas ramas.
-# Hoy tiene dos etapas, encadenadas con "needs":
-#   1. build-test   -> compila y corre los tests unitarios de cada servicio
-#   2. docker-build -> construye la imagen de cada servicio (sin publicarla)
-# En el Sprint 2 se suman Gitleaks, Semgrep, Trivy fs y SonarCloud como gates,
+# Etapas, encadenadas con "needs" (si una falla, las siguientes no corren):
+#   1. gitleaks     -> busca secretos en TODO el historial de git
+#   2. build-test   -> compila y corre los tests unitarios de cada servicio
+#   3. docker-build -> construye la imagen de cada servicio (sin publicarla)
+# En el Sprint 2 se suman Semgrep, Trivy fs y SonarCloud como gates,
 # y en el Sprint 3 Trivy image y el push a ECR.
 
 name: CI
@@ -26,8 +27,56 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  gitleaks:
+    name: gitleaks
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GITLEAKS_VERSION: 8.21.2
+    steps:
+      - name: Checkout (historial completo)
+        uses: actions/checkout@v4
+        with:
+          # 0 = traer todos los commits. Con el default (1) Gitleaks solo vería
+          # el último commit y se le escaparían los secretos viejos (lab T09-02).
+          fetch-depth: 0
+
+      - name: Instalar Gitleaks (versión fija y checksum verificado)
+        run: |
+          base="https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}"
+          file="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          curl -sSfL -o "$file" "$base/$file"
+          curl -sSfL -o checksums.txt "$base/gitleaks_${GITLEAKS_VERSION}_checksums.txt"
+          grep " $file\$" checksums.txt | sha256sum -c -
+          tar -xzf "$file" gitleaks
+          ./gitleaks version
+
+      - name: Gitleaks sobre todo el historial
+        # Si encuentra un secreto, sale con código 1 y el pipeline falla.
+        # --redact: el valor del secreto NO se imprime en el log.
+        run: |
+          ./gitleaks detect \
+            --source . \
+            --config .gitleaks.toml \
+            --log-opts="--all" \
+            --redact \
+            --verbose \
+            --report-format json \
+            --report-path gitleaks-report.json
+
+      - name: Guardar el reporte
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gitleaks-report
+          path: gitleaks-report.json
+          if-no-files-found: ignore
+          retention-days: 14
+
   build-test:
     name: build-test (${{ matrix.service }})
+    # No se compila nada si hay un secreto en el repo.
+    needs: gitleaks
     runs-on: ubuntu-latest
     timeout-minutes: 15
     strategy:
