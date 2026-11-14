@@ -16,3 +16,8 @@ venv/
 .idea/
 .DS_Store
 Thumbs.db
+
+# Artefactos de tests y caché de herramientas
+coverage.out
+.pytest_cache/
+.yarn/install-state.gz

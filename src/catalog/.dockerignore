@@ -7,3 +7,4 @@ Dockerfile
 .env.*
 *.test
 coverage.out
+*_test.go
