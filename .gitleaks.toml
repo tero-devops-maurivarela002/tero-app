@@ -61,3 +61,10 @@ commits = ["56fd8cbb2705aaf5ffec832b8a5c692e68ef28e8"]
 #    Tiene un string "apiKey" que es parte del código de Yarn, no una
 #    credencial nuestra: falso positivo de la regla generic-api-key.
 paths = ['''src/checkout/\.yarn/releases/''']
+
+# 3) Identificador público de SonarCloud en sonar-project.properties (DEVOPS-38).
+#    "tero-devops-maurivarela002_tero-app" (sonar.projectKey) tiene forma de API key
+#    para la regla generic-api-key, pero es el nombre público del proyecto.
+#    El secreto real (SONAR_TOKEN) está en GitHub Secrets, nunca en el repo.
+#    La excepción es solo para ese valor exacto.
+regexes = ['''^tero-devops-maurivarela002_tero-app$''']
