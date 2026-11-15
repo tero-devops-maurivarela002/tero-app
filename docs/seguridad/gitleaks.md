@@ -33,6 +33,7 @@ Las reglas no marcan referencias a variables (`${POSTGRES_PASSWORD:?...}`) ni va
 |---|---|
 | Commit `56fd8cb` (commit inicial) | Tiene las credenciales de ejemplo con las que vino Tero (`retailpassword`, `admin`, `change-me-in-production`) en `docker-compose.yml` y `src/admin/src/app.ts`. En DEVOPS-30 (PR #7) se sacaron del código y se **rotaron**: los valores reales están solo en el `.env` local, que está en `.gitignore`. Se decidió **no reescribir el historial** con `git filter-repo`, porque rompería los PRs ya mergeados y las ramas de todos, y porque el valor expuesto ya no sirve. La excepción es **solo para ese commit**: si alguien vuelve a escribir esas contraseñas en un commit nuevo, el pipeline falla. |
 | `src/checkout/.yarn/releases/` | Es el binario de Yarn 4 que versiona el propio Yarn. Tiene un string `apiKey:"..."` que es parte del código de Yarn y no una credencial nuestra (falso positivo de `generic-api-key`). |
+| El valor `tero-devops-maurivarela002_tero-app` (`sonar.projectKey` en `sonar-project.properties`) | Es el identificador **público** del proyecto en SonarCloud (DEVOPS-38). Por su forma, la regla `generic-api-key` lo toma como API key, pero no es secreto. El token real (`SONAR_TOKEN`) está en GitHub Secrets. La excepción es solo para ese valor exacto: un `sonar.token=` con un valor real sigue fallando (probado). |
 
 ## Resultados
 
