@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
 # ---- Etapa 1: compilar TypeScript ----
-FROM node:22.11.0-alpine3.20 AS build
+FROM node:22.23.5-alpine3.24 AS build
 WORKDIR /app
 COPY package*.json ./
 RUN npm ci
@@ -10,14 +10,19 @@ COPY src ./src
 RUN npm run build
 
 # ---- Etapa 2: solo dependencias de producción ----
-FROM node:22.11.0-alpine3.20 AS deps
+FROM node:22.23.5-alpine3.24 AS deps
 WORKDIR /app
 COPY package*.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 
 # ---- Etapa 3: ejecutar ----
-FROM node:22.11.0-alpine3.20
+FROM node:22.23.5-alpine3.24
 ENV NODE_ENV=production PORT=8080
+# En ejecución solo hace falta "node": se sacan npm, npx, yarn y corepack que trae
+# la imagen oficial. Tenían CVEs HIGH propios (Trivy image, DEVOPS-33) y además
+# son herramientas que un atacante podría usar dentro del contenedor.
+RUN rm -rf /usr/local/lib/node_modules /usr/local/bin/npm /usr/local/bin/npx \
+           /usr/local/bin/corepack /usr/local/bin/yarn /usr/local/bin/yarnpkg /opt/yarn-*
 WORKDIR /app
 COPY --from=deps --chown=node:node /app/node_modules ./node_modules
 COPY --from=build --chown=node:node /app/dist ./dist

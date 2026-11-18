@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
 # ---- Etapa 1: instalar dependencias en un entorno virtual ----
-FROM python:3.12.7-slim-bookworm AS build
+FROM python:3.12.16-slim-bookworm AS build
 ENV PIP_NO_CACHE_DIR=1 PIP_DISABLE_PIP_VERSION_CHECK=1
 RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
@@ -9,7 +9,7 @@ COPY requirements.txt .
 RUN pip install -r requirements.txt
 
 # ---- Etapa 2: ejecutar ----
-FROM python:3.12.7-slim-bookworm
+FROM python:3.12.16-slim-bookworm
 ENV PATH="/opt/venv/bin:$PATH" PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 \
     CART_PERSISTENCE_PROVIDER=in-memory PORT=8080
 # Usuario sin privilegios creado para la app
