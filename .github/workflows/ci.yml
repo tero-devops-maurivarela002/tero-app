@@ -57,8 +57,8 @@ jobs:
         run: |
           base="https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}"
           file="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
-          curl -sSfL -o "$file" "$base/$file"
-          curl -sSfL -o checksums.txt "$base/gitleaks_${GITLEAKS_VERSION}_checksums.txt"
+          curl --proto '=https' --tlsv1.2 -sSfL -o "$file" "$base/$file"
+          curl --proto '=https' --tlsv1.2 -sSfL -o checksums.txt "$base/gitleaks_${GITLEAKS_VERSION}_checksums.txt"
           grep " $file\$" checksums.txt | sha256sum -c -
           tar -xzf "$file" gitleaks
           ./gitleaks version
@@ -283,8 +283,8 @@ jobs:
         run: |
           base="https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}"
           file="trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz"
-          curl -sSfL -o "$file" "$base/$file"
-          curl -sSfL -o checksums.txt "$base/trivy_${TRIVY_VERSION}_checksums.txt"
+          curl --proto '=https' --tlsv1.2 -sSfL -o "$file" "$base/$file"
+          curl --proto '=https' --tlsv1.2 -sSfL -o checksums.txt "$base/trivy_${TRIVY_VERSION}_checksums.txt"
           grep " $file\$" checksums.txt | sha256sum -c -
           tar -xzf "$file" trivy
           ./trivy --version
@@ -407,8 +407,8 @@ jobs:
         run: |
           base="https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}"
           file="trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz"
-          curl -sSfL -o "$file" "$base/$file"
-          curl -sSfL -o checksums.txt "$base/trivy_${TRIVY_VERSION}_checksums.txt"
+          curl --proto '=https' --tlsv1.2 -sSfL -o "$file" "$base/$file"
+          curl --proto '=https' --tlsv1.2 -sSfL -o checksums.txt "$base/trivy_${TRIVY_VERSION}_checksums.txt"
           grep " $file\$" checksums.txt | sha256sum -c -
           tar -xzf "$file" trivy
           ./trivy --version
