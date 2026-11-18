@@ -9,9 +9,10 @@
 #                      (build-test, semgrep y trivy-fs corren en paralelo)
 #   3. sonarcloud   -> calidad de código + cobertura de los tests, con quality gate
 #                      (necesita los reportes de cobertura de build-test)
-#   4. docker-build -> construye la imagen de cada servicio (sin publicarla),
-#                      solo si pasaron build-test, semgrep, trivy-fs Y sonarcloud
-# En el Sprint 3 se suman Trivy image y el push a ECR.
+#   4. docker-build -> construye la imagen de cada servicio, solo si pasaron
+#                      build-test, semgrep, trivy-fs Y sonarcloud. En un push a
+#                      develop/main además la publica en ECR con tag = SHA del
+#                      commit (DEVOPS-26). En un PR solo se construye.
 
 name: CI
 
@@ -375,13 +376,46 @@ jobs:
       - name: Setup Docker Buildx
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
-      - name: Build de la imagen (sin push)
+      - name: Build de la imagen
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: src/${{ matrix.service }}
+          # Se carga en el Docker local del runner (no se publica todavía):
+          # así se puede escanear antes del push (Trivy image, DEVOPS-33).
+          load: true
           push: false
           # Tag = SHA del commit: la misma imagen se va a promover entre ambientes.
           tags: tero-${{ matrix.service }}:${{ github.sha }}
           # Caché de capas en GitHub Actions, un scope por servicio.
           cache-from: type=gha,scope=${{ matrix.service }}
           cache-to: type=gha,mode=max,scope=${{ matrix.service }}
+
+      # ---- Publicación en ECR (DEVOPS-26): solo en push a develop/main, nunca en PRs.
+      # En un PR el código todavía no fue revisado ni mergeado, y además los PRs
+      # de forks no reciben secrets.
+
+      - name: Credenciales de AWS (AWS Academy)
+        if: github.event_name != 'pull_request'
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          # Academy da credenciales temporales: sin el session token no autentican.
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: us-east-1
+
+      - name: Login a ECR
+        if: github.event_name != 'pull_request'
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@7290e214a610b32bc0eef81748948b6d466a8783 # v2.2.0
+
+      - name: Push a ECR (tag = SHA del commit)
+        if: github.event_name != 'pull_request'
+        env:
+          LOCAL_IMAGE: tero-${{ matrix.service }}:${{ github.sha }}
+          REMOTE_IMAGE: ${{ steps.ecr.outputs.registry }}/tero/${{ matrix.service }}:${{ github.sha }}
+        run: |
+          docker tag "$LOCAL_IMAGE" "$REMOTE_IMAGE"
+          docker push "$REMOTE_IMAGE"
+          echo "### ${{ matrix.service }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "Publicada \`$REMOTE_IMAGE\`" >> "$GITHUB_STEP_SUMMARY"
