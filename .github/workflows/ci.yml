@@ -10,9 +10,11 @@
 #   3. sonarcloud   -> calidad de código + cobertura de los tests, con quality gate
 #                      (necesita los reportes de cobertura de build-test)
 #   4. docker-build -> construye la imagen de cada servicio, solo si pasaron
-#                      build-test, semgrep, trivy-fs Y sonarcloud. En un push a
-#                      develop/main además la publica en ECR con tag = SHA del
-#                      commit (DEVOPS-26). En un PR solo se construye.
+#                      build-test, semgrep, trivy-fs Y sonarcloud, y la escanea
+#                      con Trivy image (DEVOPS-33): si tiene CRITICAL/HIGH con
+#                      parche, el job falla y la imagen NO se publica. En un push
+#                      a develop/main la publica en ECR con tag = SHA del commit
+#                      (DEVOPS-26). En un PR solo se construye y se escanea.
 
 name: CI
 
@@ -55,8 +57,8 @@ jobs:
         run: |
           base="https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}"
           file="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
-          curl -sSfL -o "$file" "$base/$file"
-          curl -sSfL -o checksums.txt "$base/gitleaks_${GITLEAKS_VERSION}_checksums.txt"
+          curl --proto '=https' --tlsv1.2 -sSfL -o "$file" "$base/$file"
+          curl --proto '=https' --tlsv1.2 -sSfL -o checksums.txt "$base/gitleaks_${GITLEAKS_VERSION}_checksums.txt"
           grep " $file\$" checksums.txt | sha256sum -c -
           tar -xzf "$file" gitleaks
           ./gitleaks version
@@ -281,8 +283,8 @@ jobs:
         run: |
           base="https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}"
           file="trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz"
-          curl -sSfL -o "$file" "$base/$file"
-          curl -sSfL -o checksums.txt "$base/trivy_${TRIVY_VERSION}_checksums.txt"
+          curl --proto '=https' --tlsv1.2 -sSfL -o "$file" "$base/$file"
+          curl --proto '=https' --tlsv1.2 -sSfL -o checksums.txt "$base/trivy_${TRIVY_VERSION}_checksums.txt"
           grep " $file\$" checksums.txt | sha256sum -c -
           tar -xzf "$file" trivy
           ./trivy --version
@@ -365,6 +367,12 @@ jobs:
     needs: [build-test, semgrep, trivy-fs, sonarcloud]
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    permissions:
+      contents: read
+      security-events: write # subir el SARIF de Trivy image a GitHub Security
+    env:
+      TRIVY_VERSION: 0.76.1
+      IMAGE: tero-${{ matrix.service }}:${{ github.sha }}
     strategy:
       fail-fast: false
       matrix:
@@ -390,6 +398,55 @@ jobs:
           cache-from: type=gha,scope=${{ matrix.service }}
           cache-to: type=gha,mode=max,scope=${{ matrix.service }}
 
+      # ---- Escaneo de la imagen ANTES de publicarla (DEVOPS-33).
+      # Trivy fs (DEVOPS-32) ya revisó las dependencias declaradas; acá se revisa
+      # la imagen final: paquetes del sistema operativo base (Alpine/Debian),
+      # runtimes (node, python) y todo lo que realmente quedó adentro.
+
+      - name: Instalar Trivy (versión fija y checksum verificado)
+        run: |
+          base="https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}"
+          file="trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz"
+          curl --proto '=https' --tlsv1.2 -sSfL -o "$file" "$base/$file"
+          curl --proto '=https' --tlsv1.2 -sSfL -o checksums.txt "$base/trivy_${TRIVY_VERSION}_checksums.txt"
+          grep " $file\$" checksums.txt | sha256sum -c -
+          tar -xzf "$file" trivy
+          ./trivy --version
+
+      - name: Trivy image - reporte completo
+        # No falla: deja todo (todas las severidades) para Security y el informe.
+        run: |
+          ./trivy image "$IMAGE" \
+            --scanners vuln \
+            --format sarif \
+            --output trivy-image.sarif
+
+      - name: Trivy image - quality gate (CRITICAL/HIGH con parche)
+        # Mismo criterio que Trivy fs. Si falla, los pasos de push no corren:
+        # una imagen vulnerable nunca llega a ECR. Excepciones en .trivyignore.
+        run: |
+          ./trivy image "$IMAGE" \
+            --scanners vuln \
+            --severity CRITICAL,HIGH \
+            --ignore-unfixed \
+            --exit-code 1
+
+      - name: Publicar hallazgos en GitHub Security
+        if: always() && hashFiles('trivy-image.sarif') != ''
+        uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
+        with:
+          sarif_file: trivy-image.sarif
+          category: trivy-image-${{ matrix.service }}
+
+      - name: Guardar el reporte
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: trivy-image-${{ matrix.service }}
+          path: trivy-image.sarif
+          if-no-files-found: ignore
+          retention-days: 14
+
       # ---- Publicación en ECR (DEVOPS-26): solo en push a develop/main, nunca en PRs.
       # En un PR el código todavía no fue revisado ni mergeado, y además los PRs
       # de forks no reciben secrets.
@@ -412,7 +469,7 @@ jobs:
       - name: Push a ECR (tag = SHA del commit)
         if: github.event_name != 'pull_request'
         env:
-          LOCAL_IMAGE: tero-${{ matrix.service }}:${{ github.sha }}
+          LOCAL_IMAGE: ${{ env.IMAGE }}
           REMOTE_IMAGE: ${{ steps.ecr.outputs.registry }}/tero/${{ matrix.service }}:${{ github.sha }}
         run: |
           docker tag "$LOCAL_IMAGE" "$REMOTE_IMAGE"
