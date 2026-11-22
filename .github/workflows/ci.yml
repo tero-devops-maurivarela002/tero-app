@@ -15,6 +15,10 @@
 #                      parche, el job falla y la imagen NO se publica. En un push
 #                      a develop/main la publica en ECR con tag = SHA del commit
 #                      (DEVOPS-26). En un PR solo se construye y se escanea.
+#   5. deploy-dev   -> solo en push a develop (DEVOPS-27): registra una revisión
+#                      nueva de cada task definition con la imagen :SHA, hace el
+#                      rolling update en ECS, espera a que quede estable y hace
+#                      un smoke test contra el ALB (scripts/desplegar-ecs.sh).
 
 name: CI
 
@@ -476,3 +480,50 @@ jobs:
           docker push "$REMOTE_IMAGE"
           echo "### ${{ matrix.service }}" >> "$GITHUB_STEP_SUMMARY"
           echo "Publicada \`$REMOTE_IMAGE\`" >> "$GITHUB_STEP_SUMMARY"
+
+  deploy-dev:
+    name: deploy-dev (CD a ECS)
+    # CD a Dev (DEVOPS-27): solo después de un merge a develop y solo si las 6
+    # imágenes pasaron todos los gates y quedaron publicadas en ECR.
+    # Nunca en PRs ni en main (main va a test/prod en el Sprint 4).
+    needs: docker-build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # Ambiente de GitHub "dev": deja el historial de deploys en la pestaña
+    # Deployments del repo, con el link a la tienda.
+    environment:
+      name: dev
+      url: ${{ steps.deploy.outputs.url }}
+    # Un deploy a la vez: si se mergean dos PRs seguidos, el segundo espera al
+    # primero en lugar de pisarlo a mitad de camino.
+    concurrency:
+      group: deploy-dev
+      cancel-in-progress: false
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Credenciales de AWS (AWS Academy)
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: us-east-1
+
+      - name: Desplegar en ECS dev + smoke test
+        id: deploy
+        shell: bash # con pipefail: si el script falla, el "| tee" no lo tapa
+        run: |
+          ./scripts/desplegar-ecs.sh dev "$GITHUB_SHA" | tee deploy.log
+          url="$(grep -o 'http://[^ ]*' deploy.log | tail -1)"
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+          {
+            echo "### Deploy a dev"
+            echo '```'
+            cat deploy.log
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
