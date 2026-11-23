@@ -172,17 +172,6 @@ jobs:
           npm ci
           npm run build
 
-      - name: Guardar reporte de cobertura (para SonarCloud)
-        if: matrix.lang == 'go' || matrix.lang == 'python'
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: coverage-${{ matrix.service }}
-          path: |
-            src/${{ matrix.service }}/coverage.out
-            src/${{ matrix.service }}/coverage.xml
-          if-no-files-found: ignore
-          retention-days: 7
-
       - name: Tests unitarios (Node)
         if: matrix.lang == 'node'
         run: npm test --if-present
@@ -203,6 +192,26 @@ jobs:
       - name: Tests unitarios (Yarn)
         if: matrix.lang == 'node-yarn'
         run: node .yarn/releases/yarn-4.11.0.cjs test
+
+      # ---------- Cobertura (todos) ----------
+      - name: Ajustar rutas de la cobertura de Node
+        # c8 escribe rutas relativas al servicio (SF:src/jsonlog.ts) y SonarCloud
+        # las necesita relativas a la raíz del repo (SF:src/ui/src/jsonlog.ts).
+        if: matrix.lang == 'node' || matrix.lang == 'node-yarn'
+        env:
+          SERVICE: ${{ matrix.service }}
+        run: sed -i "s#^SF:#SF:src/${SERVICE}/#" coverage/lcov.info
+
+      - name: Guardar reporte de cobertura (para SonarCloud)
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: coverage-${{ matrix.service }}
+          path: |
+            src/${{ matrix.service }}/coverage.out
+            src/${{ matrix.service }}/coverage.xml
+            src/${{ matrix.service }}/coverage/lcov.info
+          if-no-files-found: ignore
+          retention-days: 7
 
   semgrep:
     name: semgrep

@@ -21,3 +21,7 @@ Thumbs.db
 coverage.out
 .pytest_cache/
 .yarn/install-state.gz
+
+# Cobertura de Node (c8)
+coverage/
+lcov.info
