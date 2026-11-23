@@ -78,14 +78,27 @@ echo "==> Esperando a que los 6 servicios queden estables (puede tardar unos min
 aws ecs wait services-stable --region "$REGION" --cluster "$CLUSTER" --services "${SERVICES[@]}"
 
 # "Estable" también puede significar que el circuit breaker hizo ROLLBACK a la
-# versión anterior: hay que confirmar que corre la revisión nueva.
+# versión anterior: hay que confirmar que cada servicio corre la IMAGEN nueva.
+# Se compara la imagen y no el número de revisión porque otro proceso (por
+# ejemplo el apply del pipeline de Terraform) puede registrar una revisión
+# equivalente con la misma imagen: eso es correcto y no es un fallo del deploy.
 failed=0
 for svc in "${SERVICES[@]}"; do
-  running="$(aws ecs describe-services --region "$REGION" --cluster "$CLUSTER" \
-    --services "$svc" --query 'services[0].deployments[?status==`PRIMARY`].taskDefinition | [0]' --output text)"
-  if [[ "$running" != "${NEW_TD[$svc]}" ]]; then
-    echo "❌ ${svc} no quedó con la revisión nueva (corre ${running##*/}): rollback del circuit breaker"
+  expected="${REGISTRY}/tero/${REPO[$svc]}:${SHA}"
+  read -r running_td rollout <<<"$(aws ecs describe-services --region "$REGION" --cluster "$CLUSTER" \
+    --services "$svc" --output text \
+    --query 'services[0].deployments[?status==`PRIMARY`] | [0].[taskDefinition, rolloutState]')"
+  running_image="$(aws ecs describe-task-definition --region "$REGION" --task-definition "$running_td" \
+    --output text --query "taskDefinition.containerDefinitions[?name=='${svc}'] | [0].image")"
+
+  if [[ "$running_image" != "$expected" ]]; then
+    echo "❌ ${svc} corre ${running_image##*/} (${running_td##*/}) en vez de ${REPO[$svc]}:${SHA}: rollback del circuit breaker o un deploy posterior"
     failed=1
+  elif [[ "$rollout" != "COMPLETED" ]]; then
+    echo "❌ ${svc}: el deploy quedó en estado ${rollout}"
+    failed=1
+  elif [[ "$running_td" != "${NEW_TD[$svc]}" ]]; then
+    echo "  ${svc}: corre ${running_td##*/} (misma imagen, registrada por otro proceso, ej. Terraform)"
   fi
 done
 [[ "$failed" -eq 0 ]] || exit 1
