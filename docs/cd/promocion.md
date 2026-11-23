@@ -61,10 +61,22 @@ despliega nada.
 
 ## Decisiones y límites
 
-- **Un arreglo para una release se hace en `develop`** y se corta (o se mergea)
-  de nuevo a la rama release. Un commit hecho directamente en `release/*` se
-  publica en ECR, pero no tiene `integration-dev`, así que el gate 1 lo frena.
-  Es a propósito: toda versión pasa por dev antes de llegar a test.
+- **Un arreglo para una release se hace en `develop`** (PR normal, pasa por
+  dev e `integration-dev`) y después la rama release se **adelanta** hasta ese
+  commit, sin crear un commit nuevo:
+  `git fetch origin && git push origin origin/develop:release/1.0`
+  (fast-forward; si la release tiene commits propios, se borra y se vuelve a
+  cortar desde `develop`). No se usa un PR `develop` → `release/*` con merge
+  commit, porque ese merge sería un SHA nuevo que nunca pasó por dev.
+  Un commit hecho directamente en `release/*` se publica en ECR, pero no tiene
+  `integration-dev`, así que el gate 1 lo frena con un mensaje claro. Es a
+  propósito: toda versión pasa por dev antes de llegar a test.
+- **Merge a `main` solo con merge commit.** Si se mergea con squash o rebase,
+  el commit de `main` tiene un solo padre: `gate-prod` falla **antes** de la
+  aprobación con un error que lo explica, y no se despliega nada. Para que ni
+  siquiera se pueda elegir mal, el ruleset de `main` permite solo *Merge
+  commit* (*Settings → Rules → main → Require a pull request → Allowed merge
+  methods*).
 - **Test y prod se prenden solo para probar** (cuestan crédito de AWS
   Academy). Antes de cortar una release, levantarlos con el pipeline de
   tero-infra (*Run workflow* → `test`/`prod` → `apply`). Si el ambiente no
