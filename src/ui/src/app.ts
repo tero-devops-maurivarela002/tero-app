@@ -1,8 +1,10 @@
 import express from 'express';
 import path from 'path';
 import { createProxyMiddleware } from 'http-proxy-middleware';
+import { logJson, requestLogger } from './jsonlog';
 
 const app = express();
+app.use(requestLogger('ui'));
 
 const CATALOG_URL  = process.env.RETAIL_UI_ENDPOINTS_CATALOG  || 'http://catalog:8080';
 const CARTS_URL    = process.env.RETAIL_UI_ENDPOINTS_CARTS    || 'http://carts:8080';
@@ -23,4 +25,4 @@ app.use(express.static(path.join(__dirname, '../public')));
 app.get('/health', (_req, res) => res.send('OK'));
 
 const port = parseInt(process.env.PORT || '8080', 10);
-app.listen(port, () => console.log(`UI listening on :${port}`));
+app.listen(port, () => logJson('ui', 'INFO', 'listening', { port }));
