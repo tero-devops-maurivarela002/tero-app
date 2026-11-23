@@ -1,6 +1,7 @@
-# Pipeline de CI de tero-app (DEVOPS-25, DEVOPS-31, DEVOPS-34, DEVOPS-32, DEVOPS-38)
+# Pipeline de CI/CD de tero-app (DEVOPS-25, 31, 34, 32, 38, 26, 27, 39, 28, 29)
 #
-# Corre en cada PR a develop/main y en cada push (merge) a esas ramas.
+# Corre en cada PR a develop/main y en cada push (merge) a develop, main y release/*.
+# Git Flow (ADR-001): develop -> dev, release/* -> test, main -> prod.
 # Etapas, encadenadas con "needs" (si una falla, las siguientes no corren):
 #   1. gitleaks     -> busca secretos en TODO el historial de git
 #   2. build-test   -> compila y corre los tests unitarios de cada servicio
@@ -17,8 +18,9 @@
 #                      y la escanea
 #                      con Trivy image (DEVOPS-33): si tiene CRITICAL/HIGH con
 #                      parche, el job falla y la imagen NO se publica. En un push
-#                      a develop/main la publica en ECR con tag = SHA del commit
-#                      (DEVOPS-26). En un PR solo se construye y se escanea.
+#                      a develop o release/* la publica en ECR con tag = SHA del
+#                      commit (DEVOPS-26), salvo que ya exista. En un PR y en main
+#                      solo se construye y se escanea: main NO publica, promueve.
 #   5. deploy-dev   -> solo en push a develop (DEVOPS-27): registra una revisión
 #                      nueva de cada task definition con la imagen :SHA, hace el
 #                      rolling update en ECS, espera a que quede estable y hace
@@ -26,14 +28,22 @@
 #   6. integration-dev -> la misma colección de Newman, ahora contra dev en AWS
 #                      (DEVOPS-39). Si falla, el pipeline queda en rojo y esa
 #                      versión no se promueve a test.
-
+#   7. deploy-test  -> push a release/* (DEVOPS-28/29). Gate: el MISMO SHA tiene
+#                      que tener integration-dev en verde. Despliega en test esa
+#                      imagen (no se reconstruye) y corre integration-test.
+#   8. deploy-prod  -> push a main (merge de release/* a main). Promueve el SHA de
+#                      la rama release (2do padre del merge). Gate: ese SHA tiene
+#                      que tener integration-test en verde. Pide APROBACIÓN manual
+#                      (environment production) y después corre smoke-prod
+#                      (Newman, solo la carpeta de lectura).
+# Detalle en docs/cd/promocion.md.
 name: CI
 
 on:
   pull_request:
     branches: [develop, main]
   push:
-    branches: [develop, main]
+    branches: [develop, main, 'release/**']
   workflow_dispatch:
 
 # Mínimo privilegio: el pipeline solo necesita leer el código.
@@ -447,6 +457,9 @@ jobs:
     env:
       TRIVY_VERSION: 0.76.1
       IMAGE: tero-${{ matrix.service }}:${{ github.sha }}
+      # Se publica en ECR solo desde develop y release/*. main nunca publica:
+      # prod usa la imagen que ya pasó por dev y test (build once, deploy many).
+      PUBLICAR: ${{ github.event_name != 'pull_request' && (github.ref == 'refs/heads/develop' || startsWith(github.ref, 'refs/heads/release/')) }}
     strategy:
       fail-fast: false
       matrix:
@@ -521,12 +534,12 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
-      # ---- Publicación en ECR (DEVOPS-26): solo en push a develop/main, nunca en PRs.
+      # ---- Publicación en ECR (DEVOPS-26): solo en push a develop o release/*, nunca en PRs.
       # En un PR el código todavía no fue revisado ni mergeado, y además los PRs
       # de forks no reciben secrets.
 
       - name: Credenciales de AWS (AWS Academy)
-        if: github.event_name != 'pull_request'
+        if: env.PUBLICAR == 'true'
         uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
@@ -536,16 +549,24 @@ jobs:
           aws-region: us-east-1
 
       - name: Login a ECR
-        if: github.event_name != 'pull_request'
+        if: env.PUBLICAR == 'true'
         id: ecr
         uses: aws-actions/amazon-ecr-login@7290e214a610b32bc0eef81748948b6d466a8783 # v2.2.0
 
       - name: Push a ECR (tag = SHA del commit)
-        if: github.event_name != 'pull_request'
+        if: env.PUBLICAR == 'true'
         env:
           LOCAL_IMAGE: ${{ env.IMAGE }}
           REMOTE_IMAGE: ${{ steps.ecr.outputs.registry }}/tero/${{ matrix.service }}:${{ github.sha }}
         run: |
+          # Una rama release/* recién creada apunta al mismo commit que develop:
+          # la imagen ya está publicada (y los repos son inmutables). No se pisa.
+          if aws ecr describe-images --repository-name "tero/${{ matrix.service }}" \
+               --image-ids imageTag="$GITHUB_SHA" >/dev/null 2>&1; then
+            echo "### ${{ matrix.service }}" >> "$GITHUB_STEP_SUMMARY"
+            echo "Ya estaba publicada \`$REMOTE_IMAGE\` (se reutiliza)" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
           docker tag "$LOCAL_IMAGE" "$REMOTE_IMAGE"
           docker push "$REMOTE_IMAGE"
           echo "### ${{ matrix.service }}" >> "$GITHUB_STEP_SUMMARY"
@@ -555,7 +576,7 @@ jobs:
     name: deploy-dev (CD a ECS)
     # CD a Dev (DEVOPS-27): solo después de un merge a develop y solo si las 6
     # imágenes pasaron todos los gates y quedaron publicadas en ECR.
-    # Nunca en PRs ni en main (main va a test/prod en el Sprint 4).
+    # Nunca en PRs, ni en release/* (test) ni en main (prod).
     needs: docker-build
     if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
     runs-on: ubuntu-latest
@@ -626,6 +647,182 @@ jobs:
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: newman-dev
+          path: reports/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  # ===================== Promoción: test y prod (DEVOPS-28/29) =====================
+
+  deploy-test:
+    name: deploy-test (promoción a test)
+    # Push a release/* (Git Flow): se despliega en test la imagen de ESTE commit,
+    # la misma que ya corrió en dev. No se reconstruye nada.
+    needs: docker-build
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/heads/release/')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment:
+      name: test
+      url: ${{ steps.deploy.outputs.url }}
+    outputs:
+      url: ${{ steps.deploy.outputs.url }}
+    concurrency:
+      group: deploy-test
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      actions: read # leer los runs anteriores para el gate
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Gate dev -> test (integration-dev en verde para este SHA)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: ./scripts/verificar-gate.sh "$GITHUB_SHA" "integration-dev (newman contra dev)"
+
+      - name: Credenciales de AWS (AWS Academy)
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: us-east-1
+
+      - name: Desplegar en ECS test + smoke test
+        id: deploy
+        shell: bash
+        run: |
+          ./scripts/desplegar-ecs.sh test "$GITHUB_SHA" | tee deploy.log
+          { echo "### Deploy a test"; echo '```'; cat deploy.log; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
+  integration-test:
+    name: integration-test (newman contra test)
+    # Tests de integración contra test. Es el gate para promover a prod.
+    needs: deploy-test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Node (para correr Newman)
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+
+      - name: Tests de integración contra test (Newman)
+        env:
+          BASE_URL: ${{ needs.deploy-test.outputs.url }}
+        run: ./scripts/tests-integracion.sh "$BASE_URL"
+
+      - name: Guardar el reporte
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: newman-test
+          path: reports/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  gate-prod:
+    name: gate-prod (qué versión se promueve)
+    # Push a main = merge de un PR release/* -> main. El commit de main es un
+    # merge nuevo (otro SHA, sin imagen): se promueve el commit de la rama
+    # release, que es el 2do padre del merge. Se valida ANTES de pedir la
+    # aprobación, así quien aprueba ve en el resumen qué SHA va a prod.
+    needs: docker-build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      sha: ${{ steps.sha.outputs.sha }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: SHA a promover (2do padre del merge)
+        id: sha
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          sha="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}" --jq '.parents[1].sha // empty')"
+          if [[ -z "$sha" ]]; then
+            echo "::error::${GITHUB_SHA} no es un merge commit. A main se llega con un PR desde release/* mergeado con 'Create a merge commit' (no squash ni rebase)."
+            exit 1
+          fi
+          echo "sha=${sha}" >> "$GITHUB_OUTPUT"
+          echo "### Se promueve a prod \`${sha}\`" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Gate test -> prod (integration-test en verde para ese SHA)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: ./scripts/verificar-gate.sh "${{ steps.sha.outputs.sha }}" "integration-test (newman contra test)"
+
+  deploy-prod:
+    name: deploy-prod (promoción a prod)
+    # Aprobación manual: environment "production" con required reviewers. El
+    # job queda en pausa ("Waiting") hasta que alguien toca Review deployments.
+    needs: gate-prod
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment:
+      name: production
+      url: ${{ steps.deploy.outputs.url }}
+    outputs:
+      url: ${{ steps.deploy.outputs.url }}
+    concurrency:
+      group: deploy-prod
+      cancel-in-progress: false
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Credenciales de AWS (AWS Academy)
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: us-east-1
+
+      - name: Desplegar en ECS prod + smoke test
+        id: deploy
+        shell: bash
+        env:
+          SHA: ${{ needs.gate-prod.outputs.sha }}
+        run: |
+          ./scripts/desplegar-ecs.sh prod "$SHA" | tee deploy.log
+          { echo "### Deploy a prod"; echo '```'; cat deploy.log; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
+  smoke-prod:
+    name: smoke-prod (newman solo lectura)
+    # En prod no se crean órdenes de prueba: solo la carpeta de lectura.
+    needs: deploy-prod
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Node (para correr Newman)
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+
+      - name: Smoke test de prod (Newman, solo lectura)
+        env:
+          BASE_URL: ${{ needs.deploy-prod.outputs.url }}
+        run: ./scripts/tests-integracion.sh "$BASE_URL" "01 Solo lectura (health y catálogo)"
+
+      - name: Guardar el reporte
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: newman-prod
           path: reports/
           if-no-files-found: ignore
           retention-days: 14

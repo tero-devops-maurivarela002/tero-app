@@ -167,6 +167,14 @@ docker compose exec redis redis-cli
 
 ---
 
+## CI/CD y operación
+
+- Pipeline y quality gates: [docs/quality-gates.md](docs/quality-gates.md)
+- Deploy a dev: [docs/cd/despliegue-dev.md](docs/cd/despliegue-dev.md)
+- Promoción a test y prod (con aprobación): [docs/cd/promocion.md](docs/cd/promocion.md)
+- Tests de integración (Newman): [docs/testing/tests-de-integracion.md](docs/testing/tests-de-integracion.md)
+- Prender el lab de AWS Academy de nuevo: [runbook en tero-infra](https://github.com/tero-devops-maurivarela002/tero-infra/blob/develop/docs/runbooks/prender-el-lab.md)
+
 ## Estructura del repositorio
 
 ```
