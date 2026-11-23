@@ -83,25 +83,31 @@ failed=0
 for svc in "${SERVICES[@]}"; do
   running="$(aws ecs describe-services --region "$REGION" --cluster "$CLUSTER" \
     --services "$svc" --query 'services[0].deployments[?status==`PRIMARY`].taskDefinition | [0]' --output text)"
-  if [ "$running" != "${NEW_TD[$svc]}" ]; then
+  if [[ "$running" != "${NEW_TD[$svc]}" ]]; then
     echo "❌ ${svc} no quedó con la revisión nueva (corre ${running##*/}): rollback del circuit breaker"
     failed=1
   fi
 done
-[ "$failed" -eq 0 ] || exit 1
+[[ "$failed" -eq 0 ]] || exit 1
 echo "✅ Los 6 servicios corren ${SHA}"
 
 # Smoke test contra el ALB público: la tienda y una API que pasa por el ALB interno.
 ALB_DNS="$(aws elbv2 describe-load-balancers --region "$REGION" --names "$ALB_NAME" \
   --query 'LoadBalancers[0].DNSName' --output text)"
+# HTTP a propósito: en AWS Academy no hay dominio propio ni certificado de ACM,
+# así que el ALB solo escucha en el puerto 80 (riesgo aceptado, ver
+# docs/seguridad/checkov.md de tero-infra: CKV_AWS_2). Pasar a https:// cuando haya dominio.
+BASE_URL="http://${ALB_DNS}" # NOSONAR
 for path in /health / /api/catalog/products; do
   ok=0
   for _ in 1 2 3 4 5 6; do
-    code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "http://${ALB_DNS}${path}" || true)"
-    if [ "$code" = "200" ]; then ok=1; break; fi
+    code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "${BASE_URL}${path}" || true)"
+    if [[ "$code" = "200" ]]; then ok=1; break; fi
     sleep 10
   done
-  if [ "$ok" -eq 1 ]; then echo "✅ GET ${path} -> 200"; else echo "❌ GET ${path} -> ${code}"; exit 1; fi
+  if [[ "$ok" -eq 1 ]]; then echo "✅ GET ${path} -> 200"; else echo "❌ GET ${path} -> ${code}"; exit 1; fi
 done
 
-echo "🚀 Deploy de ${SHA} en ${ENVIRONMENT} OK: http://${ALB_DNS}"
+echo "🚀 Deploy de ${SHA} en ${ENVIRONMENT} OK: ${BASE_URL}"
+# Para el link del ambiente en la pestaña Deployments de GitHub.
+if [[ -n "${GITHUB_OUTPUT:-}" ]]; then echo "url=${BASE_URL}" >> "$GITHUB_OUTPUT"; fi

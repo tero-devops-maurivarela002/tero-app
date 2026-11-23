@@ -518,9 +518,8 @@ jobs:
         id: deploy
         shell: bash # con pipefail: si el script falla, el "| tee" no lo tapa
         run: |
+          # El script deja la URL de la tienda en $GITHUB_OUTPUT (url=...).
           ./scripts/desplegar-ecs.sh dev "$GITHUB_SHA" | tee deploy.log
-          url="$(grep -o 'http://[^ ]*' deploy.log | tail -1)"
-          echo "url=$url" >> "$GITHUB_OUTPUT"
           {
             echo "### Deploy a dev"
             echo '```'

@@ -54,8 +54,10 @@ se puede usar a mano desde CloudShell para volver a una versión anterior).
 
 Terraform (tero-infra) crea la infraestructura y la primera revisión de cada task
 definition con la variable `image_tag`; el CD después registra revisiones nuevas
-cambiando solo la imagen. Si se vuelve a correr `terraform apply` en dev hay que
-pasarle el SHA que está desplegado (el último commit de `develop` de tero-app):
+cambiando solo la imagen. El pipeline de Terraform de tero-infra (DEVOPS-45)
+toma solo el SHA que está corriendo en dev, así que no pisa el CD. Si se corre
+`terraform apply` a mano, hay que pasarle el SHA desplegado (el último commit
+de `develop` de tero-app):
 
 ```bash
 terraform plan -var-file=envs/dev.tfvars -var="image_tag=<último SHA de develop>"
