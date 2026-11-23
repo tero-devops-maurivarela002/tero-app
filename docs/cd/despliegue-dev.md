@@ -35,9 +35,12 @@ se puede usar a mano desde CloudShell para volver a una versión anterior).
    nuevas, espera que el target group las vea sanas (`/health`) y recién ahí
    baja las viejas (`minimum_healthy_percent = 100`: sin corte).
 4. `aws ecs wait services-stable` para los 6 servicios.
-5. Confirma que cada servicio corre la revisión **nueva**: si una tarea no
-   levanta, el *circuit breaker* de ECS hace rollback solo a la versión anterior
-   y el servicio queda "estable" igual; por eso se chequea y el job falla.
+5. Confirma que cada servicio corre la **imagen nueva** y que el deploy quedó
+   `COMPLETED`: si una tarea no levanta, el *circuit breaker* de ECS hace
+   rollback solo a la versión anterior y el servicio queda "estable" igual; por
+   eso se chequea y el job falla. Se compara la imagen y no el número de
+   revisión: si el pipeline de Terraform aplica en paralelo, registra una
+   revisión equivalente (misma imagen) y eso está bien.
 6. Smoke test contra el ALB público: `GET /health`, `GET /` y
    `GET /api/catalog/products` tienen que dar 200 (con reintentos). La última
    pasa por ui → ALB interno → catalog → RDS, o sea que prueba la cadena completa.
