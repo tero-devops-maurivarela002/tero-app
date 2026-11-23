@@ -72,6 +72,11 @@ fields @timestamp, service, level, method, path, status, msg, message
 | limit 50
 ```
 
+Trae solo nivel `ERROR`: los 5xx (falla del servidor) y los errores que loguea
+la app. Los 4xx **no** aparecen acá: son errores del cliente (una ruta que no
+existe, un dato mal mandado) y se loguean como `WARN`. Para verlos:
+la consulta 2 (agrupa por `status`) o `filter level = "WARN"`.
+
 ### 2. Volumen de requests por servicio y status
 
 ```
@@ -121,5 +126,19 @@ Muestra en orden la secuencia ui → carts → checkout → orders de una compra
 
 ## Evidencia
 
-Capturas de las consultas corriendo sobre dev en
-[`docs/evidencias/sprint3/`](../evidencias/sprint3/).
+![Salida de scripts/consultar-logs.sh dev 30](../evidencias/sprint3/DEVOPS-48-consultas-logs.png)
+
+`./scripts/consultar-logs.sh dev 30` en CloudShell (22/11/2026), después de
+usar la tienda (navegar, carrito, compra) y forzar dos 404 con `curl`:
+
+- **1-errores vacía:** no hubo ningún 5xx ni error de la app. Los 404 forzados
+  no aparecen porque son `WARN` (ver la consulta 1).
+- **2-requests-por-status:** cada servicio con sus status, incluidos los
+  `status=404` de catalog, orders y ui.
+- **3-latencia:** checkout es el más lento (~125 ms promedio, llama a orders y
+  a Redis); catalog y orders responden en menos de 10 ms.
+- **4-rutas-lentas:** las más lentas son el `submit` y el `update` del checkout
+  y agregar al carrito; aparece la ruta forzada `/api/catalog/products/no-existe`.
+  El path se guarda sin query string, así que no se filtran parámetros.
+
+Las consultas 5 y 6 se corren en la consola de Logs Insights.
