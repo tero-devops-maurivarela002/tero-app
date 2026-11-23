@@ -9,8 +9,12 @@
 #                      (build-test, semgrep y trivy-fs corren en paralelo)
 #   3. sonarcloud   -> calidad de código + cobertura de los tests, con quality gate
 #                      (necesita los reportes de cobertura de build-test)
+#      integration  -> tests de integración con Newman (DEVOPS-39): levanta la
+#                      tienda con docker compose en el runner y corre el flujo
+#                      de compra (tests/integration/). Paralelo a sonarcloud.
 #   4. docker-build -> construye la imagen de cada servicio, solo si pasaron
-#                      build-test, semgrep, trivy-fs Y sonarcloud, y la escanea
+#                      build-test, semgrep, trivy-fs, sonarcloud E integration,
+#                      y la escanea
 #                      con Trivy image (DEVOPS-33): si tiene CRITICAL/HIGH con
 #                      parche, el job falla y la imagen NO se publica. En un push
 #                      a develop/main la publica en ECR con tag = SHA del commit
@@ -19,6 +23,9 @@
 #                      nueva de cada task definition con la imagen :SHA, hace el
 #                      rolling update en ECS, espera a que quede estable y hace
 #                      un smoke test contra el ALB (scripts/desplegar-ecs.sh).
+#   6. integration-dev -> la misma colección de Newman, ahora contra dev en AWS
+#                      (DEVOPS-39). Si falla, el pipeline queda en rojo y esa
+#                      versión no se promueve a test.
 
 name: CI
 
@@ -373,11 +380,65 @@ jobs:
             -Dsonar.qualitygate.wait=true
             -Dsonar.qualitygate.timeout=300
 
+  integration:
+    name: integration (newman con docker compose)
+    # Tests de integración (DEVOPS-39) ANTES de publicar nada: levanta la tienda
+    # completa en el runner (db, redis, catalog, carts, orders, checkout y ui)
+    # y corre el flujo de compra de punta a punta a través del UI.
+    needs: build-test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Node (para correr Newman)
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+
+      - name: Crear .env con contraseñas descartables
+        # Se generan en cada corrida y mueren con el runner: no hay nada que filtrar.
+        run: |
+          {
+            echo "POSTGRES_USER=retail_user"
+            echo "POSTGRES_PASSWORD=$(openssl rand -hex 24)"
+            echo "ADMIN_USERNAME=admin"
+            echo "ADMIN_PASSWORD=$(openssl rand -hex 24)"
+            echo "ADMIN_JWT_SECRET=$(openssl rand -hex 32)"
+          } > .env
+
+      - name: Levantar la tienda (docker compose)
+        # "ui" arrastra sus dependencias; el panel admin no participa del flujo.
+        run: docker compose up -d --build ui
+
+      - name: Tests de integración (Newman)
+        run: ./scripts/tests-integracion.sh http://localhost:8080
+
+      - name: Logs de los contenedores (si falló)
+        if: failure()
+        run: |
+          mkdir -p reports
+          docker compose logs --no-color --timestamps | tee reports/compose.log
+
+      - name: Guardar el reporte
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: newman-compose
+          path: reports/
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Bajar la tienda
+        if: always()
+        run: docker compose down -v
+
   docker-build:
     name: docker-build (${{ matrix.service }})
-    # Solo se construyen imágenes si pasaron TODOS los gates:
-    # tests, SAST (semgrep), SCA (trivy-fs) y calidad (sonarcloud).
-    needs: [build-test, semgrep, trivy-fs, sonarcloud]
+    # Solo se construyen imágenes si pasaron TODOS los gates: tests unitarios,
+    # SAST (semgrep), SCA (trivy-fs), calidad (sonarcloud) e integración (newman).
+    needs: [build-test, semgrep, trivy-fs, sonarcloud, integration]
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -504,6 +565,9 @@ jobs:
     environment:
       name: dev
       url: ${{ steps.deploy.outputs.url }}
+    # La URL de la tienda en dev, para que integration-dev corra Newman contra ella.
+    outputs:
+      url: ${{ steps.deploy.outputs.url }}
     # Un deploy a la vez: si se mergean dos PRs seguidos, el segundo espera al
     # primero en lugar de pisarlo a mitad de camino.
     concurrency:
@@ -535,3 +599,33 @@ jobs:
             cat deploy.log
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+
+  integration-dev:
+    name: integration-dev (newman contra dev)
+    # La misma colección de Newman, ahora contra el ambiente real (ALB, ECS,
+    # RDS y ElastiCache). Es el gate para promover esta versión a test (DEVOPS-29).
+    needs: deploy-dev
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Node (para correr Newman)
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+
+      - name: Tests de integración contra dev (Newman)
+        env:
+          BASE_URL: ${{ needs.deploy-dev.outputs.url }}
+        run: ./scripts/tests-integracion.sh "$BASE_URL"
+
+      - name: Guardar el reporte
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: newman-dev
+          path: reports/
+          if-no-files-found: ignore
+          retention-days: 14

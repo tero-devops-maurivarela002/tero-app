@@ -11,8 +11,11 @@ Un **quality gate** es una condición objetiva que, si no se cumple, **frena el 
 | `semgrep` | SAST: patrones inseguros en el código (OWASP Top 10) | **1 o más** hallazgos ERROR o WARNING | Hoy hay 0. Cualquier problema nuevo de seguridad se frena. Los INFO son de estilo y no bloquean. | [seguridad/semgrep.md](seguridad/semgrep.md) |
 | `trivy-fs` | SCA: CVEs conocidos en dependencias | **1 o más** CRITICAL o HIGH **con parche disponible** | Lo pide la letra. Si no hay parche, bloquear no ayuda: se documenta y se acepta en `.trivyignore`. | [seguridad/trivy-fs.md](seguridad/trivy-fs.md) |
 | `sonarcloud` | Calidad: bugs, vulnerabilidades, code smells, hotspots, cobertura y duplicación del **código nuevo** | Quality gate **"Sonar way"** en estado *Failed* (ver abajo) | Estándar de la industria, centrado en el código nuevo ("Clean as You Code"). | Esta página |
+| `integration` | Tests de integración con Newman: el flujo de compra completo (UI → catalog, carts, checkout y orders) contra la tienda levantada con docker compose | **1 o más** aserciones fallidas | Si los servicios no funcionan juntos, no tiene sentido publicar imágenes. Lo agrega DEVOPS-39. | [testing/tests-de-integracion.md](testing/tests-de-integracion.md) |
 
-Orden en el pipeline: `gitleaks` → `build-test`, `semgrep` y `trivy-fs` en paralelo → `sonarcloud` (necesita la cobertura de `build-test`) → `docker-build`. Los 5 gates son *required status checks* en los rulesets de `develop` y `main`: un PR no se puede mergear si alguno falla.
+Orden en el pipeline: `gitleaks` → `build-test`, `semgrep` y `trivy-fs` en paralelo → `sonarcloud` (necesita la cobertura de `build-test`) e `integration` en paralelo → `docker-build`. Los 6 gates son *required status checks* en los rulesets de `develop` y `main`: un PR no se puede mergear si alguno falla.
+
+Después del deploy a dev corre `integration-dev`: la misma colección de Newman contra el ambiente real. Es el gate para promover una versión a test (DEVOPS-29).
 
 ## SonarCloud: condiciones del quality gate
 
