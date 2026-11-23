@@ -25,3 +25,4 @@ coverage.out
 # Cobertura de Node (c8)
 coverage/
 lcov.info
+reports/
