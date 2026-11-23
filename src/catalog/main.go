@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -40,6 +41,10 @@ import (
 // @BasePath /
 
 func main() {
+	// Todo lo que se loguea (también log.Println/log.Fatal) sale en JSON (DEVOPS-48).
+	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, nil)).With("service", "catalog"))
+	gin.SetMode(gin.ReleaseMode)
+
 	ctx := context.Background()
 
 	_, otelPresent := os.LookupEnv("OTEL_SERVICE_NAME")
@@ -67,9 +72,8 @@ func main() {
 	}
 
 	r := gin.New()
-	r.Use(gin.LoggerWithConfig(gin.LoggerConfig{
-		SkipPaths: []string{"/health"},
-	}))
+	// Logs en JSON (DEVOPS-48) en lugar del logger de texto de gin.
+	r.Use(gin.Recovery(), middleware.JSONLogger(slog.Default()))
 
 	p := ginprometheus.NewPrometheus("gin")
 	p.Use(r)

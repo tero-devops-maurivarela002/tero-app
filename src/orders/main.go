@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"strings"
@@ -58,6 +59,10 @@ type CreateOrderRequest struct {
 var db *gorm.DB
 
 func main() {
+	// Todo lo que se loguea (también log.Fatal) sale en JSON (DEVOPS-48).
+	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, nil)).With("service", "orders"))
+	gin.SetMode(gin.ReleaseMode)
+
 	dsn := buildDSN()
 
 	var err error
@@ -66,7 +71,7 @@ func main() {
 		if err == nil {
 			break
 		}
-		fmt.Printf("Waiting for PostgreSQL... (%v)\n", err)
+		slog.Warn("waiting for PostgreSQL", "error", err.Error())
 		time.Sleep(5 * time.Second)
 	}
 	if err != nil {
@@ -77,7 +82,10 @@ func main() {
 		log.Fatal("Failed to migrate schema:", err)
 	}
 
-	r := gin.Default()
+	// gin.New + Recovery en lugar de gin.Default: el logger de texto de gin se
+	// reemplaza por el de JSON (DEVOPS-48).
+	r := gin.New()
+	r.Use(gin.Recovery(), JSONLogger(slog.Default()))
 
 	p := ginprometheus.NewPrometheus("gin")
 	p.Use(r)

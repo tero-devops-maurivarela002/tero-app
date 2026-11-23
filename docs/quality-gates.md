@@ -31,12 +31,12 @@ En PRs con **menos de 20 líneas nuevas**, SonarCloud no aplica las condiciones 
 
 **¿Por qué Sonar way y no un gate propio?** Crear quality gates personalizados en SonarCloud solo se puede en los planes pagos (Team y Enterprise), y el proyecto usa el plan Free. Igual, Sonar way es exigente y razonable: no castiga el código heredado de Tero, que todavía tiene poca cobertura, pero sí exige que **todo lo nuevo** salga bien. Es el enfoque *Clean as You Code*.
 
-**Consecuencia práctica:** `checkout`, `ui` y `admin` todavía no tienen tests unitarios. Un PR que agregue más de 20 líneas de código a esos servicios va a fallar por cobertura hasta que se les agreguen tests. Es intencional: el gate obliga a escribir tests junto con el código nuevo.
+**Consecuencia práctica:** todo código nuevo tiene que venir con tests. Desde DEVOPS-48 los 6 servicios reportan cobertura: Go (`go test -coverprofile`), Python (`pytest-cov`) y Node (`node --test` + `c8`, en `ui`, `admin` y `checkout`).
 
 ## Cómo se conecta
 
 - `sonar-project.properties`: organización, proyecto, qué es código y qué es test, y dónde están los reportes de cobertura.
-- Cobertura: `build-test` genera `coverage.out` (Go) y `coverage.xml` (pytest-cov) y los sube como artefactos. El job `sonarcloud` los baja antes del análisis.
+- Cobertura: `build-test` genera `coverage.out` (Go), `coverage.xml` (pytest-cov) y `coverage/lcov.info` (c8, Node) y los sube como artefactos. El job `sonarcloud` los baja antes del análisis.
 - `SONAR_TOKEN`: secreto del repo (Actions y Dependabot). No está en el código.
 - `sonar.qualitygate.wait=true`: el job espera el veredicto del gate y falla si es *Failed*.
 
