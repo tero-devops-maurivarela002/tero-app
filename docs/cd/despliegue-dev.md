@@ -75,3 +75,8 @@ Si se pasa un SHA viejo, Terraform vuelve los servicios a esa versión.
   cada sesión del lab, si no el deploy falla en "Credenciales de AWS".
 - El ambiente dev levantado (`terraform apply` en tero-infra). Si dev está
   destruido, `deploy-dev` falla al buscar los servicios: es esperado, el resto del CI (y las imágenes en ECR) quedan bien.
+
+## Siguiente paso: test y prod
+
+La promoción de la misma imagen a test y prod, con sus gates y la aprobación
+manual, está en [promocion.md](promocion.md).
