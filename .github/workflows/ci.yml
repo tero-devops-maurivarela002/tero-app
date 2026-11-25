@@ -9,7 +9,8 @@
 #      trivy-fs     -> SCA: vulnerabilidades conocidas en las dependencias
 #                      (build-test, semgrep y trivy-fs corren en paralelo)
 #   3. sonarcloud   -> calidad de código + cobertura de los tests, con quality gate
-#                      (necesita los reportes de cobertura de build-test)
+#                      (necesita los reportes de cobertura de build-test). Solo en
+#                      PRs y develop: el plan Free no analiza release/* ni main.
 #      integration  -> tests de integración con Newman (DEVOPS-39): levanta la
 #                      tienda con docker compose en el runner y corre el flujo
 #                      de compra (tests/integration/). Paralelo a sonarcloud.
@@ -361,7 +362,16 @@ jobs:
     # Calidad de código (DEVOPS-38): bugs, code smells, vulnerabilidades,
     # security hotspots, duplicación y cobertura. La configuración está en
     # sonar-project.properties y los umbrales en docs/quality-gates.md.
+    #
+    # Corre en los PRs y en develop, no en release/* ni en main: el plan Free de
+    # SonarCloud solo analiza la rama principal del proyecto (develop) y los PRs
+    # ("Organization is not allowed to access data from non main branches").
+    # No se pierde control: release/* sale de develop (o avanza en fast-forward
+    # desde develop) y main recibe ese mismo código, así que el SHA que llega a
+    # test y prod ya pasó este quality gate en develop. Un job salteado cuenta
+    # como aprobado en los required checks.
     needs: build-test
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/develop'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -449,6 +459,9 @@ jobs:
     # Solo se construyen imágenes si pasaron TODOS los gates: tests unitarios,
     # SAST (semgrep), SCA (trivy-fs), calidad (sonarcloud) e integración (newman).
     needs: [build-test, semgrep, trivy-fs, sonarcloud, integration]
+    # Corre si ningún gate falló. sonarcloud se saltea en release/* y main
+    # (ver arriba): "salteado" no bloquea, "fallado" sí.
+    if: ${{ !failure() && !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
