@@ -9,8 +9,8 @@
 #      trivy-fs     -> SCA: vulnerabilidades conocidas en las dependencias
 #                      (build-test, semgrep y trivy-fs corren en paralelo)
 #   3. sonarcloud   -> calidad de código + cobertura de los tests, con quality gate
-#                      (necesita los reportes de cobertura de build-test). Solo en
-#                      PRs y develop: el plan Free no analiza release/* ni main.
+#                      (necesita los reportes de cobertura de build-test). En release/*
+#                      y main no analiza (plan Free): el job pasa sin correr Sonar.
 #      integration  -> tests de integración con Newman (DEVOPS-39): levanta la
 #                      tienda con docker compose en el runner y corre el flujo
 #                      de compra (tests/integration/). Paralelo a sonarcloud.
@@ -368,26 +368,38 @@ jobs:
     # ("Organization is not allowed to access data from non main branches").
     # No se pierde control: release/* sale de develop (o avanza en fast-forward
     # desde develop) y main recibe ese mismo código, así que el SHA que llega a
-    # test y prod ya pasó este quality gate en develop. Un job salteado cuenta
-    # como aprobado en los required checks.
+    # test y prod ya pasó este quality gate en develop.
+    #
+    # Se saltean los PASOS, no el job: si el job queda "skipped", todos los
+    # jobs que dependen de él (docker-build, deploy-test, gate-prod...) también
+    # se saltean. Así el job termina en verde y la cadena sigue.
     needs: build-test
-    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/develop'
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      ANALIZAR: ${{ github.event_name == 'pull_request' || github.ref == 'refs/heads/develop' }}
     steps:
+      - name: Sin análisis en esta rama (plan Free)
+        if: env.ANALIZAR != 'true'
+        run: |
+          echo "SonarCloud no analiza ${GITHUB_REF_NAME}: este SHA ya pasó el quality gate en develop." | tee -a "$GITHUB_STEP_SUMMARY"
+
       - name: Checkout (historial completo)
+        if: env.ANALIZAR == 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # SonarCloud usa el historial (git blame) para saber qué código es "nuevo".
           fetch-depth: 0
 
       - name: Bajar reportes de cobertura de build-test
+        if: env.ANALIZAR == 'true'
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: coverage-*
           path: coverage
 
       - name: Análisis de SonarCloud + quality gate
+        if: env.ANALIZAR == 'true'
         uses: SonarSource/sonarqube-scan-action@59202af334b4ba7b5db01b701b8e79f8b3bef0f4 # v8.5.0
         env:
           # Token del proyecto en SonarCloud. Está en Settings > Secrets > Actions
@@ -459,9 +471,6 @@ jobs:
     # Solo se construyen imágenes si pasaron TODOS los gates: tests unitarios,
     # SAST (semgrep), SCA (trivy-fs), calidad (sonarcloud) e integración (newman).
     needs: [build-test, semgrep, trivy-fs, sonarcloud, integration]
-    # Corre si ningún gate falló. sonarcloud se saltea en release/* y main
-    # (ver arriba): "salteado" no bloquea, "fallado" sí.
-    if: ${{ !failure() && !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
