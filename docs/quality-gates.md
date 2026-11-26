@@ -42,7 +42,7 @@ En PRs con **menos de 20 líneas nuevas**, SonarCloud no aplica las condiciones 
 - Cobertura: `build-test` genera `coverage.out` (Go), `coverage.xml` (pytest-cov) y `coverage/lcov.info` (c8, Node) y los sube como artefactos. El job `sonarcloud` los baja antes del análisis.
 - `SONAR_TOKEN`: secreto del repo (Actions y Dependabot). No está en el código.
 - `sonar.qualitygate.wait=true`: el job espera el veredicto del gate y falla si es *Failed*.
-- **Dónde corre:** en los PRs y en `develop`, no en `release/*` ni en `main`. El plan Free de SonarCloud solo analiza la rama principal del proyecto (`develop`) y los PRs: en otra rama falla con *"Organization is not allowed to access data from non main branches"* (pasó el 25/11 al crear `release/1.0`). No se pierde control, porque `release/*` sale de `develop` y `main` recibe ese mismo código: el SHA que llega a test y prod ya pasó el gate en `develop`. En esas ramas el job queda *skipped*, y `docker-build` corre igual si ningún otro gate falló.
+- **Dónde corre:** en los PRs y en `develop`, no en `release/*` ni en `main`. El plan Free de SonarCloud solo analiza la rama principal del proyecto (`develop`) y los PRs: en otra rama falla con *"Organization is not allowed to access data from non main branches"* (pasó el 25/11 al crear `release/1.0`). No se pierde control, porque `release/*` sale de `develop` y `main` recibe ese mismo código: el SHA que llega a test y prod ya pasó el gate en `develop`. En esas ramas el job corre pero saltea sus pasos y termina en verde. Primero se probó salteando el job entero, pero un job *skipped* hace que se salteen también todos los que dependen de él: `deploy-test` no corrió.
 
 ## Qué hacer si el gate falla (runbook)
 
