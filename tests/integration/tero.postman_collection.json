@@ -1,0 +1,530 @@
+{
+  "info": {
+    "name": "Tero - tests de integración",
+    "description": "DEVOPS-39. Flujo de compra completo contra el ALB público, pasando por el proxy del UI hacia catalog, carts, checkout y orders. Ver docs/testing/tests-de-integracion.md.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "01 Solo lectura (health y catálogo)",
+      "description": "No escribe datos: es la parte que se puede correr contra prod.",
+      "item": [
+        {
+          "name": "Health del UI",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"responde 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"el cuerpo es OK\", () => pm.expect(pm.response.text()).to.eql(\"OK\"));",
+                  "pm.test(\"responde en menos de 2 s\", () => pm.expect(pm.response.responseTime).to.be.below(2000));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/health",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "health"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Listar productos (UI -> catalog)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"responde 200\", () => pm.response.to.have.status(200));",
+                  "const productos = pm.response.json();",
+                  "pm.test(\"devuelve una lista con productos\", () => {",
+                  "    pm.expect(productos).to.be.an(\"array\").that.is.not.empty;",
+                  "});",
+                  "pm.test(\"cada producto tiene id, nombre y precio entero\", () => {",
+                  "    productos.forEach(p => {",
+                  "        pm.expect(p.id).to.be.a(\"string\").and.not.empty;",
+                  "        pm.expect(p.name).to.be.a(\"string\").and.not.empty;",
+                  "        pm.expect(Number.isInteger(p.price)).to.be.true;",
+                  "    });",
+                  "});",
+                  "// El primer producto es el que se compra en el flujo de compra.",
+                  "pm.collectionVariables.set(\"product_id\", productos[0].id);",
+                  "pm.collectionVariables.set(\"product_name\", productos[0].name);",
+                  "pm.collectionVariables.set(\"product_price\", productos[0].price);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/catalog/products",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "catalog",
+                "products"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Detalle de un producto",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"responde 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"es el producto pedido\", () => {",
+                  "    pm.expect(pm.response.json().id).to.eql(pm.collectionVariables.get(\"product_id\"));",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/catalog/products/{{product_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "catalog",
+                "products",
+                "{{product_id}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Producto inexistente da 404",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"responde 404 (no 500)\", () => pm.response.to.have.status(404));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/catalog/products/no-existe",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "catalog",
+                "products",
+                "no-existe"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "02 Flujo de compra",
+      "description": "Carrito -> checkout -> orden. Crea una orden de prueba (cliente newman-<timestamp>).",
+      "item": [
+        {
+          "name": "Agregar producto al carrito (UI -> carts)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Un cliente distinto en cada corrida: los datos de una corrida no pisan los de otra.",
+                  "pm.collectionVariables.set(\"customer_id\", \"newman-\" + Date.now());"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"responde 201\", () => pm.response.to.have.status(201));",
+                  "pm.test(\"devuelve el ítem agregado\", () => {",
+                  "    const item = pm.response.json();",
+                  "    pm.expect(item.itemId).to.eql(pm.collectionVariables.get(\"product_id\"));",
+                  "    pm.expect(item.quantity).to.eql(2);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/carts/{{customer_id}}/items",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "carts",
+                "{{customer_id}}",
+                "items"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"itemId\": \"{{product_id}}\",\n  \"quantity\": 2,\n  \"unitPrice\": {{product_price}}\n}"
+            }
+          }
+        },
+        {
+          "name": "Ítem con datos inválidos da 422",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"responde 422 (validación de FastAPI)\", () => pm.response.to.have.status(422));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/carts/{{customer_id}}/items",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "carts",
+                "{{customer_id}}",
+                "items"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"itemId\": \"{{product_id}}\",\n  \"quantity\": \"muchos\",\n  \"unitPrice\": 1\n}"
+            }
+          }
+        },
+        {
+          "name": "Ver el carrito",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"responde 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"el carrito tiene el producto con cantidad 2\", () => {",
+                  "    const items = pm.response.json().items;",
+                  "    pm.expect(items).to.have.lengthOf(1);",
+                  "    pm.expect(items[0].itemId).to.eql(pm.collectionVariables.get(\"product_id\"));",
+                  "    pm.expect(items[0].quantity).to.eql(2);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/carts/{{customer_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "carts",
+                "{{customer_id}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Preparar el checkout (UI -> checkout)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"responde 201\", () => pm.response.to.have.status(201));",
+                  "const c = pm.response.json();",
+                  "const precio = Number(pm.collectionVariables.get(\"product_price\"));",
+                  "pm.test(\"subtotal = precio x 2\", () => pm.expect(c.subtotal).to.eql(precio * 2));",
+                  "pm.test(\"envío priority-mail = 10 e impuesto = 5\", () => {",
+                  "    pm.expect(c.shipping).to.eql(10);",
+                  "    pm.expect(c.tax).to.eql(5);",
+                  "});",
+                  "pm.test(\"total = subtotal + envío + impuesto\", () => pm.expect(c.total).to.eql(precio * 2 + 15));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/checkout/{{customer_id}}/update",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "checkout",
+                "{{customer_id}}",
+                "update"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"items\": [\n    {\n      \"id\": \"{{product_id}}\",\n      \"name\": \"{{product_name}}\",\n      \"quantity\": 2,\n      \"price\": {{product_price}}\n    }\n  ],\n  \"shippingAddress\": {\n    \"firstName\": \"Newman\",\n    \"lastName\": \"CI\",\n    \"email\": \"newman@example.com\",\n    \"address1\": \"Calle de prueba 1234\",\n    \"city\": \"Montevideo\",\n    \"state\": \"MO\",\n    \"zip\": \"11000\"\n  },\n  \"deliveryOptionToken\": \"priority-mail\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Checkout con datos inválidos da 400",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"responde 400 (ValidationPipe de NestJS)\", () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/checkout/{{customer_id}}-invalido/update",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "checkout",
+                "{{customer_id}}-invalido",
+                "update"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"items\": [\n    {\n      \"id\": \"{{product_id}}\",\n      \"name\": \"x\",\n      \"quantity\": -1,\n      \"price\": {{product_price}}\n    }\n  ]\n}"
+            }
+          }
+        },
+        {
+          "name": "Confirmar la compra (checkout -> orders)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"responde 201\", () => pm.response.to.have.status(201));",
+                  "const o = pm.response.json();",
+                  "pm.test(\"devuelve el id de la orden\", () => pm.expect(o.orderId).to.be.a(\"string\").and.not.empty);",
+                  "pm.test(\"el total coincide con el checkout\", () => {",
+                  "    pm.expect(o.total).to.eql(Number(pm.collectionVariables.get(\"product_price\")) * 2 + 15);",
+                  "});",
+                  "pm.collectionVariables.set(\"order_id\", o.orderId);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/checkout/{{customer_id}}/submit",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "checkout",
+                "{{customer_id}}",
+                "submit"
+              ]
+            }
+          }
+        },
+        {
+          "name": "La orden quedó guardada (UI -> orders)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"responde 200\", () => pm.response.to.have.status(200));",
+                  "const orden = pm.response.json().find(o => o.id === pm.collectionVariables.get(\"order_id\"));",
+                  "pm.test(\"la orden nueva aparece en la lista\", () => pm.expect(orden).to.be.an(\"object\"));",
+                  "pm.test(\"la orden tiene el producto, la cantidad y el costo correctos\", () => {",
+                  "    const precio = Number(pm.collectionVariables.get(\"product_price\"));",
+                  "    pm.expect(orden.email).to.eql(\"newman@example.com\");",
+                  "    pm.expect(orden.items).to.have.lengthOf(1);",
+                  "    pm.expect(orden.items[0].productId).to.eql(pm.collectionVariables.get(\"product_id\"));",
+                  "    pm.expect(orden.items[0].quantity).to.eql(2);",
+                  "    pm.expect(orden.items[0].totalCost).to.eql(precio * 2);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/orders",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "orders"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Vaciar el carrito",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"responde 202\", () => pm.response.to.have.status(202));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/carts/{{customer_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "carts",
+                "{{customer_id}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "El carrito quedó vacío",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"responde 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"no tiene ítems\", () => pm.expect(pm.response.json().items).to.be.empty);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/carts/{{customer_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "carts",
+                "{{customer_id}}"
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:8080"
+    },
+    {
+      "key": "customer_id",
+      "value": ""
+    },
+    {
+      "key": "product_id",
+      "value": ""
+    },
+    {
+      "key": "product_name",
+      "value": ""
+    },
+    {
+      "key": "product_price",
+      "value": ""
+    },
+    {
+      "key": "order_id",
+      "value": ""
+    }
+  ]
+}

@@ -1,0 +1,15 @@
+# Dependabot (DEVOPS-34): mantiene al día las GitHub Actions fijadas por SHA.
+# Cada semana revisa si hay versión nueva de cada action y abre un PR a develop
+# actualizando el SHA y el comentario con la versión. Ese PR pasa por el mismo CI.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    target-branch: develop
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "deps(actions)"
+    groups:
+      actions:
+        patterns: ["*"]

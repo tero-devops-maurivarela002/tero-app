@@ -1,0 +1,19 @@
+# Excepciones de Trivy (DEVOPS-32)
+#
+# Acá se listan CVEs que se aceptan conscientemente, uno por línea, cada uno con:
+#   - por qué no aplica o por qué no se puede corregir todavía,
+#   - quién lo aceptó y hasta cuándo (fecha de revisión).
+# Formato:
+#   # <justificación> | aceptado por <nombre> | revisar el <fecha>
+#   CVE-AAAA-NNNNN
+#
+# Trivy fs: no hay ninguna (ver docs/seguridad/trivy-fs.md).
+
+# Trivy image (DEVOPS-33), imagen de catalog:
+# libssl3 de gcr.io/distroless/base-debian12:nonroot. Debian ya publicó el parche
+# (3.0.22-1~deb12u2) pero Google todavía no reconstruyó la imagen distroless, y no
+# se le pueden instalar paquetes (no tiene apt, es justamente la idea de distroless).
+# Impacto bajo: catalog no usa TLS (escucha HTTP detrás del ALB y conecta a RDS sin TLS).
+# Se saca de esta lista cuando la imagen base traiga la versión corregida.
+# | aceptado por Mauricio Varela | revisar el 01/12/2026
+CVE-2026-84782

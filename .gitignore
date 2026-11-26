@@ -1,0 +1,28 @@
+# Secretos locales: nunca al repositorio
+.env
+.env.*
+!.env.example
+
+# Dependencias y artefactos de build
+node_modules/
+dist/
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Editores y sistema operativo
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Artefactos de tests y caché de herramientas
+coverage.out
+.pytest_cache/
+.yarn/install-state.gz
+
+# Cobertura de Node (c8)
+coverage/
+lcov.info
+reports/
