@@ -77,6 +77,24 @@ done
 echo "==> Esperando a que los 6 servicios queden estables (puede tardar unos minutos)"
 aws ecs wait services-stable --region "$REGION" --cluster "$CLUSTER" --services "${SERVICES[@]}"
 
+# "services-stable" vuelve cuando corren las tareas pedidas, pero ECS marca el
+# deploy como COMPLETED (rolloutState) un rato después. Con 2 tareas por
+# servicio (prod) el waiter volvía antes y el deploy fallaba con IN_PROGRESS
+# aunque había salido bien. Se espera a que ningún servicio siga IN_PROGRESS
+# (hasta ROLLOUT_TIMEOUT segundos, 10 minutos por defecto).
+limite=$(( SECONDS + ${ROLLOUT_TIMEOUT:-600} ))
+while :; do
+  pendientes="$(aws ecs describe-services --region "$REGION" --cluster "$CLUSTER" --services "${SERVICES[@]}" \
+    --output text --query 'services[?deployments[?status==`PRIMARY` && rolloutState==`IN_PROGRESS`]].serviceName')"
+  [[ -z "$pendientes" || "$pendientes" == "None" ]] && break
+  if (( SECONDS >= limite )); then
+    echo "⚠️  Siguen en IN_PROGRESS después de ${ROLLOUT_TIMEOUT:-600}s: ${pendientes}"
+    break
+  fi
+  echo "  esperando que termine el rollout de: ${pendientes}"
+  sleep 15
+done
+
 # "Estable" también puede significar que el circuit breaker hizo ROLLBACK a la
 # versión anterior: hay que confirmar que cada servicio corre la IMAGEN nueva.
 # Se compara la imagen y no el número de revisión porque otro proceso (por
