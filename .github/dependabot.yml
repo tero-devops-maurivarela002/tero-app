@@ -1,6 +1,10 @@
 # Dependabot (DEVOPS-34): mantiene al día las GitHub Actions fijadas por SHA.
 # Cada semana revisa si hay versión nueva de cada action y abre un PR a develop
 # actualizando el SHA y el comentario con la versión. Ese PR pasa por el mismo CI.
+# cooldown (DEVOPS-37, hallazgo de Semgrep dependabot-missing-cooldown): Dependabot
+# espera 7 días desde que sale una versión antes de proponerla. Si una versión es
+# maliciosa (ataque de cadena de suministro), en ese plazo suele detectarse y
+# retirarse antes de que llegue a nuestro pipeline.
 version: 2
 updates:
   - package-ecosystem: github-actions
@@ -8,6 +12,8 @@ updates:
     target-branch: develop
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7
     commit-message:
       prefix: "deps(actions)"
     groups:

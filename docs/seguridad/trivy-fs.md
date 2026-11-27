@@ -54,13 +54,17 @@ La primera corrida sobre `develop` encontró esto (solo dependencias de producci
 
 Verificación: los tests unitarios de los 3 servicios pasan, los 6 servicios compilan, y `cart` se probó con `TestClient` (health, alta y consulta de carrito, 404 en update inexistente, `/metrics`).
 
-## Lo que queda y por qué no bloquea
+## Los 3 MEDIUM que quedaban (remediados en DEVOPS-37, 27/11/2026)
 
-| Paquete | CVE | Severidad | Fix | Decisión |
-|---|---|---|---|---|
-| `glob` 11.1.0 | CVE-2026-118773 | MEDIUM | 14.0.2 (cambio mayor) | Lo trae NestJS. Se revisa cuando se migre a NestJS 12. |
-| `minimatch` 10.2.6 | CVE-2026-118764 | MEDIUM | 11.0.1 (cambio mayor) | Ídem. |
-| `uuid` 9.0.1 | CVE-2026-41907 | MEDIUM | 11.1.1 (cambio mayor) | Dependencia directa de checkout. Subir de mayor requiere revisar el uso. Queda para el informe de hallazgos (DEVOPS-37). |
+Después de la remediación de arriba quedaban 3 MEDIUM en checkout, que no bloqueaban el gate:
+
+| Paquete | CVE | Fix de Trivy | Cómo se resolvió |
+|---|---|---|---|
+| `uuid` 9.0.1 | CVE-2026-41907 | 11.1.1 (cambio mayor) | Se **sacó la dependencia**. Solo se usaba para generar un id en `MockOrdersService`, y Node 22 ya trae `crypto.randomUUID()`. Una dependencia menos es una superficie de ataque menos. |
+| `glob` 11.1.0 | CVE-2026-118773 | 14.0.2 (cambio mayor) | Llegaba por `rimraf`, que estaba como dependencia de **producción** aunque solo se usa en el script `prebuild` (`rimraf dist`). Se movió a `devDependencies`: ya no entra en la imagen. |
+| `minimatch` 10.2.6 | CVE-2026-118764 | 11.0.1 (cambio mayor) | Ídem: venía con `glob`. |
+
+Resultado: `trivy fs .` con **todas** las severidades da **0 vulnerabilidades** en los 6 servicios. Build y tests de checkout siguen pasando.
 
 **Dependencias de desarrollo:** por defecto Trivy no cuenta las `devDependencies` (CLI de Nest, webpack, etc.), porque **no entran en la imagen**: el Dockerfile de checkout instala solo producción (`workspaces focus --production`). Con `--include-dev-deps` hoy aparecen 15 HIGH en herramientas de build (`glob`, `picomatch`, `tmp`, `serialize-javascript`, etc.). Se revisan junto con la migración a NestJS 12.
 
