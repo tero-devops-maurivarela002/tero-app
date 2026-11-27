@@ -32,6 +32,8 @@ Escaneo local de las imágenes base que usábamos (Trivy 0.76.1, 18/11/2026, sol
 | `gcr.io/distroless/base-debian12:nonroot` (catalog) | 1 | `libssl3` (CVE-2026-84782) | **Excepción** en `.trivyignore`: Debian publicó el parche pero Google todavía no reconstruyó la imagen distroless, y distroless no permite instalar paquetes. Catalog no usa TLS. Revisar el 01/12/2026. |
 | `gcr.io/distroless/static-debian12:nonroot` (orders) | 0 | | |
 
+**27/11/2026: el gate frenó a cart por una CVE nueva.** Salió CVE-2025-6020 (HIGH, `libpam`) con parche en Debian (`1.5.2-6+deb12u3`), pero la imagen `python:3.12.16-slim-bookworm` todavía traía la versión anterior. El Dockerfile de cart ahora corre `apt-get upgrade` en la etapa final, así cada build toma los parches de seguridad de Debian sin esperar a que se publique una imagen base nueva.
+
 Sacar npm de la imagen final es además *hardening*: si alguien lograra ejecutar código en el contenedor, no tendría un gestor de paquetes para bajar herramientas.
 
 ## Cómo reproducirlo local
