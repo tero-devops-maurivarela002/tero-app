@@ -412,7 +412,22 @@
   }
 
   function cents(amount) {
-    return '$' + (amount / 100).toFixed(2);
+    return '$' + (Number(amount) / 100).toFixed(2);
+  }
+
+  // Seguridad (DEVOPS-37, XSS): todo dato que viene de la API o del usuario se
+  // escapa antes de meterlo en innerHTML, así un nombre con <script> o <img onerror>
+  // se muestra como texto y no se ejecuta.
+  function esc(value) {
+    return String(value ?? '').replace(/[&<>"']/g, c => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+    })[c]);
+  }
+  // Para pasar un valor como argumento dentro de onclick="...": JSON.stringify lo
+  // convierte en un literal de JS (escapa comillas y barras) y esc() lo protege
+  // dentro del atributo HTML.
+  function jsArg(value) {
+    return esc(JSON.stringify(String(value ?? '')));
   }
 
   function toast(msg) {
@@ -484,15 +499,15 @@
     const container = document.getElementById('products');
     if (!products.length) { container.innerHTML = '<p class="empty-note">No hay productos en esta categoría.</p>'; return; }
     container.innerHTML = products.map(p => `
-      <div class="product-card tint-${tagNames(p.tags)[0] || 'default'}">
+      <div class="product-card tint-${esc(tagNames(p.tags)[0] || 'default')}">
         <div class="product-img">
           ${productIcon(p.name, p.tags)}
           <span class="price-tag">${cents(p.price)}</span>
         </div>
         <div class="product-info">
-          <div class="product-name">${p.name}</div>
-          <div class="product-desc">${p.description || ''}</div>
-          <button class="add-btn" onclick="addToCart('${p.id}', ${p.price})">Agregar al carrito</button>
+          <div class="product-name">${esc(p.name)}</div>
+          <div class="product-desc">${esc(p.description)}</div>
+          <button class="add-btn" onclick="addToCart(${jsArg(p.id)}, ${Number(p.price)})">Agregar al carrito</button>
         </div>
       </div>
     `).join('');
@@ -542,10 +557,10 @@
       return `
         <div class="cart-item">
           <div class="cart-item-info">
-            <div class="cart-item-name">${name}</div>
-            <div class="cart-item-price">${i.quantity} × ${cents(i.unitPrice)}</div>
+            <div class="cart-item-name">${esc(name)}</div>
+            <div class="cart-item-price">${esc(i.quantity)} × ${cents(i.unitPrice)}</div>
           </div>
-          <button class="remove-btn" aria-label="Quitar del carrito" onclick="removeFromCart('${i.itemId}')">✕</button>
+          <button class="remove-btn" aria-label="Quitar del carrito" onclick="removeFromCart(${jsArg(i.itemId)})">✕</button>
         </div>
       `;
     }).join('');
@@ -629,23 +644,23 @@
           <div class="order-card">
             <div class="order-header">
               <div>
-                <div><strong>${o.firstName} ${o.lastName}</strong> — ${o.email}</div>
-                <div class="order-id">${o.id}</div>
-                <div class="order-id">${new Date(o.createdDate).toLocaleString()}</div>
+                <div><strong>${esc(o.firstName)} ${esc(o.lastName)}</strong> — ${esc(o.email)}</div>
+                <div class="order-id">${esc(o.id)}</div>
+                <div class="order-id">${esc(new Date(o.createdDate).toLocaleString())}</div>
               </div>
               <div class="order-total">${cents(total)}</div>
             </div>
             <div class="order-items">
               ${items.map(i => `
                 <div class="order-item-row">
-                  <span>${i.name || i.productId} × ${i.quantity}</span>
+                  <span>${esc(i.name || i.productId)} × ${esc(i.quantity)}</span>
                   <span>${cents(i.totalCost || 0)}</span>
                 </div>`).join('')}
             </div>
           </div>`;
       }).join('');
     } catch (err) {
-      container.innerHTML = `<div class="no-orders">No se pudieron cargar las órdenes: ${err.message}</div>`;
+      container.innerHTML = `<div class="no-orders">No se pudieron cargar las órdenes: ${esc(err.message)}</div>`;
     }
   }
 

@@ -12,6 +12,12 @@ RUN pip install -r requirements.txt
 FROM python:3.12.16-slim-bookworm
 ENV PATH="/opt/venv/bin:$PATH" PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 \
     CART_PERSISTENCE_PROVIDER=in-memory PORT=8080
+# Parches de seguridad de Debian publicados después de la imagen base (Trivy image,
+# DEVOPS-33). Ej.: CVE-2025-6020 en libpam (fix 1.5.2-6+deb12u3) salió cuando
+# python:3.12.16-slim-bookworm todavía traía deb12u2. Se limpia la caché de apt.
+RUN apt-get update \
+ && apt-get upgrade -y --no-install-recommends \
+ && rm -rf /var/lib/apt/lists/*
 # Usuario sin privilegios creado para la app
 RUN groupadd --system app && useradd --system --gid app --no-create-home app
 WORKDIR /app

@@ -298,8 +298,8 @@
         <td class="price-cell">${cents(p.price)}</td>
         <td><div class="tags">${(p.tags || []).map(t => `<span class="tag">${esc(t)}</span>`).join('')}</div></td>
         <td><div class="actions">
-          <button class="btn-edit" onclick="openEdit('${esc(p.id)}','${esc(p.name)}',\`${esc(p.description||'')}\`,${p.price})">Editar</button>
-          <button class="btn-delete" onclick="deleteProduct('${esc(p.id)}','${esc(p.name)}')">Eliminar</button>
+          <button class="btn-edit" onclick="openEdit(${jsArg(p.id)},${jsArg(p.name)},${jsArg(p.description)},${Number(p.price)})">Editar</button>
+          <button class="btn-delete" onclick="deleteProduct(${jsArg(p.id)},${jsArg(p.name)})">Eliminar</button>
         </div></td>
       </tr>
     `).join('');
@@ -363,7 +363,7 @@
     if (!orders.length) { tbody.innerHTML = '<tr><td colspan="7" class="empty-state">Todavía no hay órdenes.</td></tr>'; return; }
     tbody.innerHTML = orders.map(o => {
       const total = (o.items || []).reduce((s, i) => s + (i.totalCost || 0), 0);
-      const rowId = 'ord-' + o.id.replace(/-/g, '');
+      const rowId = 'ord-' + String(o.id).replace(/[^a-zA-Z0-9]/g, '');
       return `
         <tr class="order-row" onclick="toggleOrder('${rowId}')">
           <td style="color:#aaa;font-size:.9rem">▶</td>
@@ -385,7 +385,7 @@
                 ${(o.items || []).map(i => `
                   <tr>
                     <td>${esc(i.name || i.productId)}</td>
-                    <td>${i.quantity}</td>
+                    <td>${esc(i.quantity)}</td>
                     <td>${cents(i.unitCost || 0)}</td>
                     <td>${cents(i.totalCost || 0)}</td>
                   </tr>`).join('')}
@@ -405,8 +405,16 @@
   }
 
   // ── XSS helper ───────────────────────────────────────────────────────────
+  // Seguridad (DEVOPS-37, XSS): escapa un dato antes de meterlo en innerHTML.
   function esc(s) {
-    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+    return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+  }
+  // Para un argumento dentro de onclick="...". esc() solo no alcanza: el navegador
+  // decodifica &#39; antes de ejecutar el JS, y un nombre con ' (o ${...} dentro de
+  // un template literal) se escapaba del string. JSON.stringify arma un literal de JS
+  // seguro y esc() lo protege dentro del atributo.
+  function jsArg(v) {
+    return esc(JSON.stringify(String(v ?? '')));
   }
 
   // ── Init ─────────────────────────────────────────────────────────────────

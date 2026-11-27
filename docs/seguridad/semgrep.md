@@ -58,6 +58,7 @@ Corriendo además las reglas de JavaScript de navegador del repo público de Sem
 
 - **Riesgo:** medio. Hace falta acceso al admin, que está protegido con usuario, contraseña y JWT.
 - **Remediación propuesta:** escapar los datos antes de insertarlos (una función `esc()`) o usar `textContent`. Se registra en el informe de hallazgos (DEVOPS-37) para corregirlo en una tarea propia.
+- **Remediado en DEVOPS-37 (27/11/2026).** Al corregirlo apareció que el riesgo era mayor del estimado: en la tienda, el modal de órdenes mostraba sin escapar el nombre y el email que **cualquier cliente** escribe en el checkout, sin necesidad del admin. Y en el admin, que ya tenía `esc()`, los botones *Editar* y *Eliminar* pasaban los datos dentro de `onclick="..."`, donde `esc()` no alcanza: el navegador decodifica `&#39;` antes de ejecutar el JS y un nombre con `'` o `${...}` se escapaba del string. Ahora las dos páginas escapan todo dato con `esc()` y los argumentos de `onclick` van con `jsArg()` (`JSON.stringify` y después `esc()`). Se verificó con Playwright cargando un producto y una orden con `x'"><img src=x onerror=...>${...}`: antes el código se ejecutaba, después se muestra como texto y los botones reciben el valor exacto.
 
 Lo bueno, que también sirve para la defensa: **no apareció ninguna inyección SQL**. Todas las queries de `admin` usan parámetros (`$1`, `$2`) y nunca concatenan input del usuario.
 
