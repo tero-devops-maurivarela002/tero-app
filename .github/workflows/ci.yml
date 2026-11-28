@@ -141,7 +141,7 @@ jobs:
       # ---------- Go (catalog, orders) ----------
       - name: Setup Go
         if: matrix.lang == 'go'
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
           go-version-file: src/${{ matrix.service }}/go.mod
           cache-dependency-path: src/${{ matrix.service }}/go.sum
@@ -277,7 +277,7 @@ jobs:
 
       - name: Publicar hallazgos en GitHub Security
         if: always() && hashFiles('semgrep.sarif') != ''
-        uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
+        uses: github/codeql-action/upload-sarif@915412ff23e8b7659517e607487dbeae018f2934 # v4.39.5
         with:
           sarif_file: semgrep.sarif
           category: semgrep
@@ -343,7 +343,7 @@ jobs:
 
       - name: Publicar hallazgos en GitHub Security
         if: always() && hashFiles('trivy-fs.sarif') != ''
-        uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
+        uses: github/codeql-action/upload-sarif@915412ff23e8b7659517e607487dbeae018f2934 # v4.39.5
         with:
           sarif_file: trivy-fs.sarif
           category: trivy-fs
@@ -400,7 +400,7 @@ jobs:
 
       - name: Análisis de SonarCloud + quality gate
         if: env.ANALIZAR == 'true'
-        uses: SonarSource/sonarqube-scan-action@59202af334b4ba7b5db01b701b8e79f8b3bef0f4 # v8.5.0
+        uses: SonarSource/sonarqube-scan-action@70bad232163b09d998ea0707ee80c0ec80798c16 # v8.5.1
         env:
           # Token del proyecto en SonarCloud. Está en Settings > Secrets > Actions
           # (y también en Dependabot, para que corra en sus PRs). Nunca en el código.
@@ -542,7 +542,7 @@ jobs:
 
       - name: Publicar hallazgos en GitHub Security
         if: always() && hashFiles('trivy-image.sarif') != ''
-        uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
+        uses: github/codeql-action/upload-sarif@915412ff23e8b7659517e607487dbeae018f2934 # v4.39.5
         with:
           sarif_file: trivy-image.sarif
           category: trivy-image-${{ matrix.service }}
